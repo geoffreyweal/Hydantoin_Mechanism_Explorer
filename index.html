@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydantoin Mechanism Explorer</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>Phenylglyoxal hydrate + <i>N</i>-benzyl-<i>N</i>&prime;-methyl(thio)urea &rarr; 5-phenyl(thio)hydantoins</h1>
+    <p class="sub">Every mechanism (M1&ndash;M54) with its steps and structures. Click a structure to turn it in 3D. Click a step arrow
+      to see the step with its curly arrows, a 3D TS guess and the NEB path between the two sides.</p>
+  </div>
+  <div class="controls">
+    <div class="seg" id="chsel" role="group" aria-label="Chalcogen">
+      <button data-ch="O" class="on">Urea (O)</button><button data-ch="S">Thiourea (S)</button>
+    </div>
+    <nav class="seg" id="tabs" role="tablist">
+      <button data-tab="mech" class="on">Mechanisms</button><button data-tab="net">Network</button><button data-tab="species">Species</button><button data-tab="steps">Steps</button><button data-tab="about">About</button>
+    </nav>
+    <input id="q" type="search" placeholder="Find M17, I52, S35a, epoxide &hellip;" aria-label="Search">
+  </div>
+</header>
+<main>
+  <section id="tab-mech" class="tab on">
+    <aside id="famlist" aria-label="Mechanism families"></aside>
+    <div class="viewwrap">
+      <div class="zoombar"><button data-z="fit" title="Fit to width">Fit</button><button data-z="1" title="Actual size">100%</button><button data-z="+">+</button><button data-z="-">&minus;</button><span id="mechtitle"></span></div>
+      <div id="mechview" class="canvas"><div class="hint">Pick a mechanism on the left.</div></div>
+    </div>
+  </section>
+  <section id="tab-net" class="tab">
+    <div class="viewwrap">
+      <div class="zoombar"><button data-nz="fit">Fit</button><button data-nz="+">+</button><button data-nz="-">&minus;</button><span class="small">Drag to move, scroll to zoom. Boxes are species, arrows are steps, dashed lines are proton transfers.</span></div>
+      <div id="netview" class="canvas pan"></div>
+      <div id="netlegend" class="legend"></div>
+    </div>
+  </section>
+  <section id="tab-species" class="tab"><div class="tablewrap"><table id="sptable"></table></div></section>
+  <section id="tab-steps" class="tab"><div class="tablewrap"><table id="sttable"></table></div></section>
+  <section id="tab-about" class="tab"><div class="about" id="about"></div></section>
+</main>
+<div id="windows"></div>
+<script src="assets/3Dmol-min.js"></script>
+<script>
+var XYZ = {}, __cache = {}, __wait = {};
+function __put(k, c, i, d) { var key = k + "/" + c + "/" + i; __cache[key] = d; (__wait[key] || []).forEach(function (f) { f(d); }); delete __wait[key]; }
+</script>
+<script src="data/meta.js"></script>
+<script src="data/xyz_O.js"></script>
+<script src="data/xyz_S.js"></script>
+<script src="data/network.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
