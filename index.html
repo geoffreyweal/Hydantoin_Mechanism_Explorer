@@ -3,24 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Only this site's own files run here. The page talks to nothing but the GitHub API (sign-in, votes and edits)
+     and raw.githubusercontent.com (reading the votes); file: is listed so that the page also works when opened
+     from the disk. 'wasm-unsafe-eval' lets the vendored Graphviz (assets/viz-global.js) run. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'wasm-unsafe-eval'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Hydantoin Mechanism Explorer</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <header>
-  <div class="title">
-    <h1>Phenylglyoxal hydrate + <i>N</i>-benzyl-<i>N</i>&prime;-methyl(thio)urea &rarr; 5-phenyl(thio)hydantoins</h1>
-    <p class="sub">Every mechanism (M1&ndash;M54) with its steps and structures. Click a structure to turn it in 3D. Click a step arrow
-      to see the step with its curly arrows, a 3D TS guess and the NEB path between the two sides.</p>
+  <div class="headrow">
+    <div class="title">
+      <h1>Phenylglyoxal hydrate + <i>N</i>-benzyl-<i>N</i>&prime;-methyl(thio)urea &rarr; 5-phenyl(thio)hydantoins</h1>
+      <p class="sub">Every mechanism<span id="famrange"></span> with its steps and structures. Click a structure to turn it in 3D. Click a step arrow
+        to see the step with its curly arrows, a 3D TS guess and the NEB path between the two sides.</p>
+    </div>
+    <div id="auth" class="auth" aria-live="polite"></div>
   </div>
   <div class="controls">
     <div class="seg" id="chsel" role="group" aria-label="Chalcogen">
       <button data-ch="O" class="on">Urea (O)</button><button data-ch="S">Thiourea (S)</button>
     </div>
     <nav class="seg" id="tabs" role="tablist">
-      <button data-tab="mech" class="on">Mechanisms</button><button data-tab="net">Network</button><button data-tab="species">Species</button><button data-tab="steps">Steps</button><button data-tab="about">About</button>
+      <button data-tab="mech" class="on">Mechanisms</button><button data-tab="net">Network</button><button data-tab="species">Species</button><button data-tab="steps">Steps</button><button data-tab="annot">Annotations</button><button data-tab="about">About</button>
     </nav>
-    <input id="q" type="search" placeholder="Find M17, I52, S35a, epoxide &hellip;" aria-label="Search">
+    <input id="q" type="search" placeholder="Find M17, I52, S35a, epoxide, is:possible &hellip;" aria-label="Search">
   </div>
 </header>
 <main>
@@ -28,30 +37,46 @@
     <aside id="famlist" aria-label="Mechanism families"></aside>
     <div class="viewwrap">
       <div class="zoombar"><button data-z="fit" title="Fit to width">Fit</button><button data-z="1" title="Actual size">100%</button><button data-z="+">+</button><button data-z="-">&minus;</button><span id="mechtitle"></span></div>
+      <div id="mechvote" class="mechvote" hidden></div>
       <div id="mechview" class="canvas"><div class="hint">Pick a mechanism on the left.</div></div>
     </div>
   </section>
   <section id="tab-net" class="tab">
     <div class="viewwrap">
-      <div class="zoombar"><button data-nz="fit">Fit</button><button data-nz="+">+</button><button data-nz="-">&minus;</button><span class="small">Drag to move, scroll to zoom. Boxes are species, arrows are steps, dashed lines are proton transfers.</span></div>
+      <div class="zoombar netbar">
+        <button data-nz="fit">Fit</button><button data-nz="+">+</button><button data-nz="-">&minus;</button>
+        <label class="netsel">Show <select id="netmode" aria-label="Which steps to show">
+          <option value="all">everything</option>
+          <option value="hide">hide what is not possible</option>
+          <option value="only">only what is marked possible</option>
+        </select></label>
+        <label class="chk"><input type="checkbox" id="netremoved"> show removed (greyed)</label>
+        <span class="editonly"><button id="addstep" title="Add a step between two states">+ step</button><button id="addmech" title="Build a new mechanism from the reactants to a product">+ mechanism</button></span>
+        <span id="netbusy" class="busy" hidden>laying out&hellip;</span>
+      </div>
+      <div class="netsub small"><span>Drag to move, scroll to zoom. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻).</span>
+        <span id="netinfo"></span></div>
       <div id="netview" class="canvas pan"></div>
       <div id="netlegend" class="legend"></div>
     </div>
   </section>
   <section id="tab-species" class="tab"><div class="tablewrap"><table id="sptable"></table></div></section>
   <section id="tab-steps" class="tab"><div class="tablewrap"><table id="sttable"></table></div></section>
+  <section id="tab-annot" class="tab"><div class="tablewrap" id="annot"></div></section>
   <section id="tab-about" class="tab"><div class="about" id="about"></div></section>
 </main>
 <div id="windows"></div>
+<div id="modal" class="modal" hidden></div>
 <script src="assets/3Dmol-min.js"></script>
-<script>
-var XYZ = {}, __cache = {}, __wait = {};
-function __put(k, c, i, d) { var key = k + "/" + c + "/" + i; __cache[key] = d; (__wait[key] || []).forEach(function (f) { f(d); }); delete __wait[key]; }
-</script>
+<script src="assets/boot.js"></script>
 <script src="data/meta.js"></script>
 <script src="data/xyz_O.js"></script>
 <script src="data/xyz_S.js"></script>
 <script src="data/network.js"></script>
+<script src="data/network_graph.js"></script>
+<script src="assets/config.js"></script>
+<script src="assets/annot.js"></script>
+<script src="assets/netgraph.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>
