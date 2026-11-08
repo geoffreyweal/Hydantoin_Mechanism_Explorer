@@ -54,7 +54,8 @@
     }
     NG.edges.forEach(function (e) {
       addEdge({ from: byName[e.from].i, to: byName[e.to].i, step: e.step, dir: e.dir, colour: e.colour, name: e.name,
-                mechs: e.mechs.slice(), eq: e.eq === true, both: e.both === true, base: true, user: null });
+                mechs: e.mechs.slice(), eq: e.eq === true, both: e.both === true, free: e.free === true,
+                dash: e.free === true && e.pt !== true, base: true, user: null });
     });
     var nBase = nodes.length, eBase = edges.length;
     function speciesInfo(id) {
@@ -142,19 +143,41 @@
     function mech(m) { if (!has(mCache, m)) mCache[m] = o.mechStatus(m); return mCache[m]; }
     var nodeOK = G.nodes.map(function () { return true; });
     var edgeOK = G.edges.map(function (e) {
+      if (e.free === true) return false;           // steps that no mechanism uses come in below
       if (e.step && rm(e.step)) return false;
       var userStep = !!(e.user && e.user.kind === "step"), live = e.mechs.filter(function (m) { return !rm(m); });
       if (!hide) return userStep || live.length > 0;
       if (e.step && o.stepStatus(e.step) === "no") return false;
       return userStep || live.some(function (m) { return mech(m) !== "no"; });
     });
-    var cur = onRoutes(G, edgeOK, nodeOK);
-    if (hide) return cur;
-    var every = onRoutes(G, G.edges.map(function () { return true; }), nodeOK);
-    var ev = G.edges.map(function (e, i) { return edgeOK[i] && (cur.edge[i] || !every.edge[i]); });
-    var nv = G.nodes.map(function (n) { return !n.user && (n.kind === "start" || n.kind === "product"); });
-    G.edges.forEach(function (e, i) { if (ev[i]) nv[e.from] = nv[e.to] = true; });
-    return { node: nv, edge: ev };
+    var freeOK = G.edges.map(function (e) {
+      return e.free === true && !(e.step && rm(e.step)) && !(hide && e.step && o.stepStatus(e.step) === "no");
+    });
+    var cur = onRoutes(G, edgeOK, nodeOK), vis;
+    if (hide) vis = cur;
+    else {
+      var every = onRoutes(G, G.edges.map(function (e) { return e.free !== true; }), nodeOK);
+      var ev = G.edges.map(function (e, i) { return edgeOK[i] && (cur.edge[i] || !every.edge[i]); });
+      var nv = G.nodes.map(function (n) { return !n.user && (n.kind === "start" || n.kind === "product"); });
+      G.edges.forEach(function (e, i) { if (ev[i]) nv[e.from] = nv[e.to] = true; });
+      vis = { node: nv, edge: ev };
+    }
+    return withFree(G, vis, freeOK);
+  }
+  /* A step that no mechanism uses (e.g. A- bonded to a cation) is shown when each of its two boxes is shown, or is a
+     box that only such steps reach; it takes no part in the routes. */
+  function withFree(G, vis, freeOK) {
+    var onlyFree = G.nodes.map(function () { return true; });
+    G.edges.forEach(function (e) { if (e.free !== true) onlyFree[e.from] = onlyFree[e.to] = false; });
+    var node = vis.node.slice(), edge = vis.edge.slice();
+    G.edges.forEach(function (e, i) {
+      if (!freeOK[i]) return;
+      if ((vis.node[e.from] || onlyFree[e.from]) && (vis.node[e.to] || onlyFree[e.to])) {
+        edge[i] = true;
+        node[e.from] = node[e.to] = true;
+      }
+    });
+    return { node: node, edge: edge };
   }
   function isFull(G, vis) {
     for (var i = 0; i < G.nodes.length; i++) if (vis.node[i] !== (i < G.nBase)) return false;
@@ -196,7 +219,8 @@
                '", dir=none, penwidth=' + (e.base ? "1.6" : "2.4") + "];");
       } else if (e.base) {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", color="' + e.colour + '", fontcolor="' + e.colour +
-               '", ' + (e.eq === true || e.both === true ? "dir=both, " : "") + 'label=<<B>' + esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
+               '", ' + (e.dash ? "style=dashed, " : "") + (e.eq === true || e.both === true ? "dir=both, " : "") + 'label=<<B>' +
+               esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
       } else {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", style=dashed, color="' + USER_COL + '", fontcolor="' +
                USER_COL + '", penwidth=2.8, label=<<B>' + esc(e.step + (e.dir === "rev" && e.user.kind === "hop" ? " (back)" : "")) +

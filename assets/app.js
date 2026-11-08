@@ -858,7 +858,7 @@
     function release(e) {
       var d = drag; drag = null;
       box.classList.remove("dragbox");
-      if (d && d.node && d.moved) { showNetButtons(); return; }
+      if (d && d.node && d.moved) { rerouteAll(); showNetButtons(); return; }
       if (!e || e.button !== 0 || !d || d.moved || d.menu || ctx) return;    // a drag, the right button (its menu), or a menu
       var g = d.target; if (!g) return;
       var id = g.id || "";
@@ -881,7 +881,8 @@
     var NG = window.NETWORK_GRAPH[S.ch], ptStep = NG.edges.some(function (e) { return e.pt && e.step; }), ptLine = NG.edges.some(function (e) { return !e.step; });
     var lg = "<b>Arrow colour: where the redox happens</b>";
     Object.keys(NETWORK_GROUPS).forEach(function (g) { lg += "<div><i style='background:" + esc(NETWORK_GROUPS[g]) + "'></i>" + esc(chText(g)) + "</div>"; });
-    if (ptStep) lg += "<div><i style='background:" + esc(NG.pt_step_colour) + "'></i>proton transfer through the acid catalyst (HA / A⁻)</div>";
+    if (ptStep) lg += "<div><i style='background:" + esc(NG.pt_step_colour) + "'></i>proton transfer or relay through the acid catalyst (HA / A⁻)</div>";
+    (NG.free_legend || []).forEach(function (f) { lg += "<div><i class='dash' style='border-color:" + esc(f[0]) + "'></i>" + esc(f[1]) + "</div>"; });
     if (ptLine) lg += "<div><i class='dash' style='border-color:" + esc(NG.pt_colour) + "'></i>proton transfer (no step)</div>";
     lg += "<div><i class='dash' style='border-color:" + NetGraph.USER_COL + "'></i>added by a collaborator</div>" +
       "<div><i style='background:#9aa3ad;opacity:0.5'></i>greyed: removed, or not possible (with “grey out”)</div>";
@@ -953,7 +954,7 @@
       hit.setAttribute("class", "hit");
       hit.setAttribute("d", path.getAttribute("d"));
       path.parentNode.insertBefore(hit, path);
-      var E = { tail: m[1], head: m[2], path: path, hit: hit, d0: path.getAttribute("d"), heads: [], label: null };
+      var E = { tail: m[1], head: m[2], path: path, hit: hit, d0: path.getAttribute("d"), d: path.getAttribute("d"), heads: [], label: null };
       var p0 = c[0], p1 = c[c.length - 1];
       $$("polygon", g).forEach(function (pg) {                      // arrow heads: at the end they are nearest to
         var q = pts(pg.getAttribute("points"));
@@ -986,15 +987,7 @@
   }
   function drawEdge(E) {
     var M = moves() || {};
-    if (!M[E.tail] && !M[E.head]) {                                  // both boxes in place: as Graphviz drew it
-      E.path.setAttribute("d", E.d0); E.hit.setAttribute("d", E.d0);
-      E.heads.forEach(function (a) { a.el.setAttribute("points", a.pts0); });
-      if (E.label) {
-        E.label.el.setAttribute("x", E.label.x); E.label.el.setAttribute("y", E.label.y);
-        if (E.label.anchor) E.label.el.setAttribute("text-anchor", E.label.anchor); else E.label.el.removeAttribute("text-anchor");
-      }
-      return;
-    }
+    if (!M[E.tail] && !M[E.head]) { restoreEdge(E); return; }      // both boxes in place: as Graphviz drew it
     var A = nodeRect(E.tail), B = nodeRect(E.head), ca = [(A.x0 + A.x1) / 2, (A.y0 + A.y1) / 2], cb = [(B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2];
     var pa = exitPoint(A, ca, cb), pb = exitPoint(B, cb, ca), u = unit([pb[0] - pa[0], pb[1] - pa[1]]), n = [-u[1], u[0]];
     var ts = unit([u[0] + 0.25 * n[0], u[1] + 0.25 * n[1]]), te = unit([u[0] - 0.25 * n[0], u[1] - 0.25 * n[1]]);   // a gentle bow
@@ -1003,15 +996,8 @@
     var s = [pa[0] + ts[0] * lt, pa[1] + ts[1] * lt], e = [pb[0] - te[0] * lh, pb[1] - te[1] * lh], l = Math.sqrt(d2(s, e)) / 3;
     var c1 = [s[0] + ts[0] * l, s[1] + ts[1] * l], c2 = [e[0] - te[0] * l, e[1] - te[1] * l];
     var d = "M" + fmt(s) + "C" + fmt(c1) + " " + fmt(c2) + " " + fmt(e);
-    E.path.setAttribute("d", d); E.hit.setAttribute("d", d);
-    E.heads.forEach(function (a) {                                   // each head turned to the new direction, its tip on the box
-      var tip = a.end === "head" ? pb : pa, dir = a.end === "head" ? te : [-ts[0], -ts[1]], ax = unit([a.tip[0] - a.base[0], a.tip[1] - a.base[1]]);
-      var th = Math.atan2(dir[1], dir[0]) - Math.atan2(ax[1], ax[0]), cs = Math.cos(th), sn = Math.sin(th);
-      a.el.setAttribute("points", a.q.map(function (p) {
-        var x = p[0] - a.tip[0], y = p[1] - a.tip[1];
-        return fmt([tip[0] + cs * x - sn * y, tip[1] + sn * x + cs * y]);
-      }).join(" "));
-    });
+    E.path.setAttribute("d", d); E.hit.setAttribute("d", d); E.d = d;
+    placeHeads(E, pa, [-ts[0], -ts[1]], pb, te);
     if (E.label) {                    // the label beside the middle of the curve, on its outer side and clear of it
       var mid = [(s[0] + 3 * c1[0] + 3 * c2[0] + e[0]) / 8, (s[1] + 3 * c1[1] + 3 * c2[1] + e[1]) / 8];
       var fs = parseFloat(E.label.el.getAttribute("font-size")) || 20, w = 0.62 * fs * E.label.el.textContent.length;
@@ -1020,6 +1006,239 @@
       E.label.el.setAttribute("y", (mid[1] + off * n[1] + 0.35 * fs).toFixed(2));
       E.label.el.setAttribute("text-anchor", "middle");
     }
+  }
+  function placeHeads(E, pa, da, pb, db) {   // each head turned to its direction (da at the tail, db at the head), tip on the box
+    E.heads.forEach(function (a) {
+      var tip = a.end === "head" ? pb : pa, dir = a.end === "head" ? db : da, ax = unit([a.tip[0] - a.base[0], a.tip[1] - a.base[1]]);
+      var th = Math.atan2(dir[1], dir[0]) - Math.atan2(ax[1], ax[0]), cs = Math.cos(th), sn = Math.sin(th);
+      a.el.setAttribute("points", a.q.map(function (p) {
+        var x = p[0] - a.tip[0], y = p[1] - a.tip[1];
+        return fmt([tip[0] + cs * x - sn * y, tip[1] + sn * x + cs * y]);
+      }).join(" "));
+    });
+  }
+  function restoreEdge(E) {          // as Graphviz drew it
+    E.path.setAttribute("d", E.d0); E.hit.setAttribute("d", E.d0); E.d = E.d0;
+    E.heads.forEach(function (a) { a.el.setAttribute("points", a.pts0); });
+    if (E.label) {
+      E.label.el.setAttribute("x", E.label.x); E.label.el.setAttribute("y", E.label.y);
+      if (E.label.anchor) E.label.el.setAttribute("text-anchor", E.label.anchor); else E.label.el.removeAttribute("text-anchor");
+    }
+  }
+
+  // ------------------------------------------------------------------ arrows routed round the boxes (after a move)
+  /* Once a box has been moved (at the end of the drag), its arrows and every arrow that now runs through a moved box
+     are routed again on a grid (A*): boxes are all but walls, running along another arrow costs more than crossing
+     it, and the route is then straightened and given rounded corners, its heads and label put back on it. While a
+     box is being dragged its arrows are simple curves, so the drag stays smooth. */
+  var RT = { margin: 10, box: 400, onEdge: 8, nearEdge: 3, maxCells: 160000, pad: 280, corner: 40 };
+  function bez(c, t) {               // a point of a quadratic or cubic Bezier curve
+    var u = 1 - t;
+    if (c.length === 3) return [u * u * c[0][0] + 2 * u * t * c[1][0] + t * t * c[2][0], u * u * c[0][1] + 2 * u * t * c[1][1] + t * t * c[2][1]];
+    return [u * u * u * c[0][0] + 3 * u * u * t * c[1][0] + 3 * u * t * t * c[2][0] + t * t * t * c[3][0],
+            u * u * u * c[0][1] + 3 * u * u * t * c[1][1] + 3 * u * t * t * c[2][1] + t * t * t * c[3][1]];
+  }
+  function samplePath(d) {           // points about every 4 units along a path of M, L, Q and C commands
+    var out = [], cur = null, re = /([MLQC])([^MLQC]*)/g, m;
+    function lineTo(q) {
+      var n = Math.max(1, Math.ceil(Math.sqrt(d2(cur, q)) / 4));
+      for (var k = 1; k <= n; k++) out.push([cur[0] + (q[0] - cur[0]) * k / n, cur[1] + (q[1] - cur[1]) * k / n]);
+      cur = q;
+    }
+    while ((m = re.exec(d || ""))) {
+      var p = pts(m[2]);
+      if (m[1] === "M") { if (p.length) { cur = p[0]; out.push(cur); } continue; }
+      if (!cur) continue;
+      if (m[1] === "L") { p.forEach(lineTo); continue; }
+      var step = m[1] === "Q" ? 2 : 3;
+      for (var i = 0; i + step - 1 < p.length; i += step) {
+        var c = [cur].concat(p.slice(i, i + step)), len = 0;
+        for (var j = 1; j < c.length; j++) len += Math.sqrt(d2(c[j - 1], c[j]));
+        var n = Math.max(4, Math.ceil(len / 4));
+        for (var k = 1; k <= n; k++) out.push(bez(c, k / n));
+        cur = c[c.length - 1];
+      }
+    }
+    return out;
+  }
+  function Heap() { this.a = []; }    // binary min-heap of [key, value]
+  Heap.prototype.push = function (k, v) {
+    var a = this.a, i = a.length;
+    a.push([k, v]);
+    while (i > 0) { var j = (i - 1) >> 1; if (a[j][0] <= a[i][0]) break; var t = a[i]; a[i] = a[j]; a[j] = t; i = j; }
+  };
+  Heap.prototype.pop = function () {
+    var a = this.a, top = a[0], last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      for (var i = 0; ;) {
+        var l = 2 * i + 1, r = l + 1, s = i;
+        if (l < a.length && a[l][0] < a[s][0]) s = l;
+        if (r < a.length && a[r][0] < a[s][0]) s = r;
+        if (s === i) break;
+        var t = a[i]; a[i] = a[s]; a[s] = t; i = s;
+      }
+    }
+    return top;
+  };
+  function inflate(R, m) { return { x0: R.x0 - m, y0: R.y0 - m, x1: R.x1 + m, y1: R.y1 + m }; }
+  function onBoundary(R, p) {        // the point of the outline of R nearest to p (p outside R)
+    var x = Math.min(Math.max(p[0], R.x0), R.x1), y = Math.min(Math.max(p[1], R.y0), R.y1);
+    if (x > R.x0 && x < R.x1 && y > R.y0 && y < R.y1) {
+      var dl = x - R.x0, dr = R.x1 - x, dt = y - R.y0, db = R.y1 - y, mn = Math.min(dl, dr, dt, db);
+      if (mn === dl) x = R.x0; else if (mn === dr) x = R.x1; else if (mn === dt) y = R.y0; else y = R.y1;
+    }
+    return [x, y];
+  }
+  function routeOne(E, boxes, others, self) {
+    var A = nodeRect(E.tail), B = nodeRect(E.head), mg = RT.margin;
+    var x0 = Math.min(A.x0, B.x0) - RT.pad, y0 = Math.min(A.y0, B.y0) - RT.pad;
+    var x1 = Math.max(A.x1, B.x1) + RT.pad, y1 = Math.max(A.y1, B.y1) + RT.pad;
+    var cell = Math.max(6, Math.sqrt((x1 - x0) * (y1 - y0) / RT.maxCells));
+    var W = Math.ceil((x1 - x0) / cell) + 1, H = Math.ceil((y1 - y0) / cell) + 1, N = W * H;
+    var cost = new Float32Array(N).fill(1), isT = new Uint8Array(N);
+    function cxy(k) { var i = k % W; return [x0 + (i + 0.5) * cell, y0 + ((k - i) / W + 0.5) * cell]; }
+    function each(R, fn) {
+      var a = Math.max(0, Math.floor((R.x0 - x0) / cell)), b = Math.min(W - 1, Math.floor((R.x1 - x0) / cell));
+      var c = Math.max(0, Math.floor((R.y0 - y0) / cell)), d = Math.min(H - 1, Math.floor((R.y1 - y0) / cell));
+      for (var j = c; j <= d; j++) for (var i = a; i <= b; i++) fn(j * W + i);
+    }
+    boxes.forEach(function (bx) {      // the other boxes (with a margin), and the inside of the arrow's own two boxes
+      var own = bx.nm === E.tail || bx.nm === E.head, R = own ? bx.r : inflate(bx.r, mg);
+      if (R.x1 < x0 || R.x0 > x1 || R.y1 < y0 || R.y0 > y1) return;
+      each(R, function (k) { cost[k] += RT.box; });
+    });
+    var stampOn = new Int32Array(N), stampNear = new Int32Array(N);
+    others.forEach(function (S, e) {   // the other arrows: once per arrow and cell
+      if (!S || e === self) return;
+      S.forEach(function (p) {
+        if (p[0] < x0 || p[0] >= x1 || p[1] < y0 || p[1] >= y1) return;
+        var i = Math.floor((p[0] - x0) / cell), j = Math.floor((p[1] - y0) / cell);
+        for (var dj = -1; dj <= 1; dj++) for (var di = -1; di <= 1; di++) {
+          var ii = i + di, jj = j + dj;
+          if (ii < 0 || jj < 0 || ii >= W || jj >= H) continue;
+          var k = jj * W + ii;
+          if (!di && !dj) { if (stampOn[k] !== e + 1) { stampOn[k] = e + 1; cost[k] += RT.onEdge; } }
+          else if (stampNear[k] !== e + 1) { stampNear[k] = e + 1; cost[k] += RT.nearEdge; }
+        }
+      });
+    });
+    var At = inflate(A, mg), Bt = inflate(B, mg), src = [];
+    each(inflate(A, mg + 1.5 * cell), function (k) {
+      var p = cxy(k);
+      if (!(p[0] > At.x0 && p[0] < At.x1 && p[1] > At.y0 && p[1] < At.y1)) src.push(k);
+    });
+    each(inflate(B, mg + 1.5 * cell), function (k) {
+      var p = cxy(k);
+      if (!(p[0] > Bt.x0 && p[0] < Bt.x1 && p[1] > Bt.y0 && p[1] < Bt.y1)) isT[k] = 1;
+    });
+    function h(k) {
+      var p = cxy(k), dx = Math.max(Bt.x0 - p[0], 0, p[0] - Bt.x1), dy = Math.max(Bt.y0 - p[1], 0, p[1] - Bt.y1);
+      return Math.sqrt(dx * dx + dy * dy) / cell;
+    }
+    var g = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), heap = new Heap(), end = -1, pops = 0;
+    src.forEach(function (k) { if (cost[k] < 1 + RT.box) { g[k] = 0; heap.push(h(k), k); } });
+    var D = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+    while (heap.a.length) {
+      var top = heap.pop(), k = top[1];
+      if (top[0] > g[k] + h(k) + 1e-6) continue;
+      if (isT[k]) { end = k; break; }
+      if (++pops > 4 * N) break;
+      var i = k % W, j = (k - i) / W;
+      for (var q = 0; q < 8; q++) {
+        var ii = i + D[q][0], jj = j + D[q][1];
+        if (ii < 0 || jj < 0 || ii >= W || jj >= H) continue;
+        var kk = jj * W + ii, ng = g[k] + D[q][2] * cost[kk];
+        if (ng < g[kk]) { g[kk] = ng; prev[kk] = k; heap.push(ng + h(kk), kk); }
+      }
+    }
+    if (end < 0) return null;
+    var cells = [];
+    for (var c2 = end; c2 >= 0; c2 = prev[c2]) cells.push(c2);
+    cells.reverse();
+    var P = cells.map(cxy);
+    function lineCost(p, q) {          // grid cost of the straight line p-q, in the units of g
+      var L = Math.sqrt(d2(p, q)), n = Math.max(1, Math.ceil(L / (cell / 2))), s = 0;
+      for (var t = 0; t <= n; t++) {
+        var x = p[0] + (q[0] - p[0]) * t / n, y = p[1] + (q[1] - p[1]) * t / n;
+        var ii = Math.min(W - 1, Math.max(0, Math.floor((x - x0) / cell))), jj = Math.min(H - 1, Math.max(0, Math.floor((y - y0) / cell)));
+        s += cost[jj * W + ii];
+      }
+      return s / (n + 1) * L / cell;
+    }
+    function ok(a, b) { return lineCost(P[a], P[b]) <= (g[cells[b]] - g[cells[a]]) * 1.05 + 0.5; }
+    var keep = [0], a = 0, last = P.length - 1;
+    while (a < last) {                 // straighten: the furthest point that a straight line reaches at no extra cost
+      var stepB = Math.max(1, Math.floor((last - a) / 12)), b = a + 1;
+      for (var cand = last; cand > a + 1; cand -= stepB) if (ok(a, cand)) { b = cand; break; }
+      while (b + 1 <= last && ok(a, b + 1)) b++;
+      keep.push(b);
+      a = b;
+    }
+    var Q = keep.map(function (k) { return P[k]; });
+    var pa = onBoundary(A, Q[0]), pb = onBoundary(B, Q[Q.length - 1]);
+    Q = [pa].concat(Q.length > 2 ? Q.slice(1, -1) : []).concat([pb]);
+    var lt = 0, lh = 0;
+    E.heads.forEach(function (hd) { if (hd.end === "head") lh = hd.len; else lt = hd.len; });
+    var da = unit([Q[1][0] - Q[0][0], Q[1][1] - Q[0][1]]), n2 = Q.length;
+    var db = unit([Q[n2 - 1][0] - Q[n2 - 2][0], Q[n2 - 1][1] - Q[n2 - 2][1]]);
+    var S2 = Q.map(function (p) { return p.slice(); });
+    S2[0] = [pa[0] + da[0] * lt, pa[1] + da[1] * lt];
+    S2[n2 - 1] = [pb[0] - db[0] * lh, pb[1] - db[1] * lh];
+    var d = "M" + fmt(S2[0]);
+    for (var v = 1; v < n2 - 1; v++) {    // rounded corners
+      var p0 = S2[v - 1], p1 = S2[v], p2 = S2[v + 1], la = Math.sqrt(d2(p0, p1)) || 1, lc = Math.sqrt(d2(p1, p2)) || 1;
+      var r = Math.min(RT.corner, la * 0.45, lc * 0.45);
+      var u0 = [p1[0] + (p0[0] - p1[0]) * r / la, p1[1] + (p0[1] - p1[1]) * r / la];
+      var u1 = [p1[0] + (p2[0] - p1[0]) * r / lc, p1[1] + (p2[1] - p1[1]) * r / lc];
+      d += "L" + fmt(u0) + "Q" + fmt(p1) + " " + fmt(u1);
+    }
+    d += "L" + fmt(S2[n2 - 1]);
+    return { d: d, pa: pa, da: [-da[0], -da[1]], pb: pb, db: db, Q: S2 };
+  }
+  function labelAt(E, Q, boxes) {   // the label beside the middle of the route, on the side with fewer boxes
+    if (!E.label) return;
+    var segs = [], tot = 0;
+    for (var i = 1; i < Q.length; i++) { var l = Math.sqrt(d2(Q[i - 1], Q[i])); segs.push(l); tot += l; }
+    var half = tot / 2, k = 0;
+    while (k < segs.length - 1 && half > segs[k]) { half -= segs[k]; k++; }
+    var f = segs[k] ? half / segs[k] : 0, mid = [Q[k][0] + (Q[k + 1][0] - Q[k][0]) * f, Q[k][1] + (Q[k + 1][1] - Q[k][1]) * f];
+    var u = unit([Q[k + 1][0] - Q[k][0], Q[k + 1][1] - Q[k][1]]), n = [-u[1], u[0]];
+    var fs = parseFloat(E.label.el.getAttribute("font-size")) || 20, w = 0.62 * fs * E.label.el.textContent.length;
+    var off = Math.abs(n[0]) * w / 2 + Math.abs(n[1]) * fs / 2 + 6, best = null;
+    [1, -1].forEach(function (sgn) {
+      var c = [mid[0] + sgn * off * n[0], mid[1] + sgn * off * n[1]], R = { x0: c[0] - w / 2, x1: c[0] + w / 2, y0: c[1] - fs / 2, y1: c[1] + fs / 2 }, hits = 0;
+      boxes.forEach(function (bx) { if (!(bx.r.x1 < R.x0 || bx.r.x0 > R.x1 || bx.r.y1 < R.y0 || bx.r.y0 > R.y1)) hits++; });
+      if (!best || hits < best.hits) best = { hits: hits, c: c };
+    });
+    E.label.el.setAttribute("x", best.c[0].toFixed(2));
+    E.label.el.setAttribute("y", (best.c[1] + 0.35 * fs).toFixed(2));
+    E.label.el.setAttribute("text-anchor", "middle");
+  }
+  function crosses(S, R) { for (var i = 0; i < S.length; i++) if (S[i][0] > R.x0 && S[i][0] < R.x1 && S[i][1] > R.y0 && S[i][1] < R.y1) return true; return false; }
+  function rerouteAll() {            // after a move: every arrow of a moved box, and every arrow through a moved box
+    if (!net.geo) return;
+    var M = moves() || {}, names = Object.keys(M), geo = net.geo;
+    if (!names.length) { geo.edges.forEach(restoreEdge); return; }
+    var aff = {}, order = [];
+    names.forEach(function (nm) { (geo.byNode[nm] || []).forEach(function (k) { if (!aff[k]) { aff[k] = 1; order.push(k); } }); });
+    var rects = names.map(function (nm) { return inflate(nodeRect(nm), RT.margin); });
+    geo.edges.forEach(function (E, k) {
+      if (aff[k]) return;
+      E.s0 = E.s0 || samplePath(E.d0);
+      if (rects.some(function (R) { return crosses(E.s0, R); })) { aff[k] = 1; order.push(k); }
+    });
+    var boxes = Object.keys(geo.nodes).map(function (nm) { return { nm: nm, r: nodeRect(nm) }; });
+    var others = geo.edges.map(function (E, k) { if (aff[k]) return null; restoreEdge(E); return E.s0 || (E.s0 = samplePath(E.d0)); });
+    order.forEach(function (k) {
+      var E = geo.edges[k], res = null;
+      try { res = routeOne(E, boxes, others, k); } catch (err) { res = null; }
+      if (!res) { drawEdge(E); others[k] = samplePath(E.d); return; }
+      E.path.setAttribute("d", res.d); E.hit.setAttribute("d", res.d); E.d = res.d;
+      placeHeads(E, res.pa, res.da, res.pb, res.db);
+      labelAt(E, res.Q, boxes);
+      others[k] = samplePath(res.d);
+    });
   }
   function placeNode(nm, d) {        // move a box to d = [dx, dy] from where Graphviz put it, and draw its arrows again
     var n = net.geo && net.geo.nodes[nm];
@@ -1037,13 +1256,14 @@
   function applyMoves() {            // after a new picture of the network: the moves of that layout, if any
     var m = net.moved[S.ch];
     if (m && m.layout !== net.layout) { net.moved[S.ch] = null; m = null; }      // laid out anew: the old moves do not fit
-    if (m) Object.keys(m.at).forEach(function (nm) { placeNode(nm, m.at[nm]); toFront(nm); });
+    if (m) { Object.keys(m.at).forEach(function (nm) { placeNode(nm, m.at[nm]); toFront(nm); }); rerouteAll(); }
     showNetButtons();
   }
   function resetMoves() {            // every moved box back where Graphviz put it
     var M = moves(), names = M ? Object.keys(M) : [];
     names.forEach(function (nm) { placeNode(nm, null); });
     net.moved[S.ch] = null;
+    if (net.geo) net.geo.edges.forEach(restoreEdge);
     showNetButtons();
   }
   function showNetButtons() {        // "restore all removed" and "reset positions", only when there is something to do

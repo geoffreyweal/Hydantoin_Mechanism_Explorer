@@ -4,9 +4,15 @@ An interactive map of every mechanism considered for
 
 phenylglyoxal hydrate + *N*-benzyl-*N*′-methyl(thio)urea → 5-phenyl(thio)hydantoins (H⁺ cat., CHCl₃)
 
-The reaction gives two isomers: **P1a** (1-R-3-Me) and **P1b** (1-Me-3-R), with R = benzyl. Each of the 54
-mechanism families (M1–M54) is drawn once ending at P1a (A) and once ending at P1b (B), for both the urea and
-the thiourea. Species and step IDs (I5a, S3b …) are the same as in the mechflow projects used for the DFT
+The reaction gives two isomers: **P1a** (1-R-3-Me) and **P1b** (1-Me-3-R), with R = benzyl. Each of the 116
+mechanism families (M1–M116) is drawn once ending at P1a (A) and once ending at P1b (B), for both the urea and
+the thiourea. M1–M54 cover every place and way of the redox. M55–M116 do the same chemistry in other ways:
+- with the catalyst in one step (HA protonating while its P=O takes a proton);
+- through the trans-diols;
+- as SN2 or E2 instead of SN1 or E1;
+- with an ionisation and a 1,2-shift together;
+- with an acyl shift in two steps.
+Only reactions that lead to P1a or P1b are included. Species and step IDs (I5a, S3b …) are the same as in the mechflow projects used for the DFT
 calculations.
 
 Open `index.html` in a browser. No server or installation is needed, and the page also works straight from
@@ -32,9 +38,11 @@ the folder. The online version is at <https://geoffreyweal.github.io/Hydantoin_M
   top picks which, with that chalcogen's structures and statuses. Each has every mechanism, ending at both
   products. Drag to move, scroll to zoom, and click a box or an arrow. Grey arrows are proton transfers through
   the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out) or steps
-  that mechanisms use both ways round. The **Show** menu filters the network by the statuses (see below).
-  **Drag a box** to move it; its arrows follow. Moved boxes stay where you put them until you reload the page or
-  press **reset positions**; nobody else sees them.
+  that mechanisms use both ways round. Dashed arrows are steps that no mechanism uses (they still join states
+  on the routes). The **Show** menu filters the network by the statuses (see below).
+  **Drag a box** to move it; its arrows follow. When you let go, its arrows (and any arrow that now runs through a
+  moved box) are routed again round the other boxes and away from other arrows. Moved boxes stay where you put
+  them until you reload the page or press **reset positions**; nobody else sees them.
 - **Right-click** a step arrow (in the network or in a mechanism), a mechanism (in the list or above its drawing)
   or a box of the network for a short menu: open it and, for collaborators, mark it, clear the mark, remove it
   from the network (until reload) or put it back, or add a step from that box. Greyed boxes and arrows have the
@@ -108,7 +116,7 @@ On the Network tab, **Show** offers:
 
 The filter uses the statuses of the chalcogen shown: a mark on the urea does not change the thiourea's network.
 An arrow is kept only while at least one mechanism that uses it is still allowed (a step added by a collaborator
-needs no mechanism); a step that mechanisms use both ways round can be followed either way. Filtering and removing
+needs no mechanism; a dashed step that no mechanism uses is shown next to the boxes that are shown); a step that mechanisms use both ways round can be followed either way. Filtering and removing
 only hide or grey boxes and arrows, so nothing moves. A network with added steps is laid out in your browser with
 Graphviz (Viz.js, included in `assets/`).
 
