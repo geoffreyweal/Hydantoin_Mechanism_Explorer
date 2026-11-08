@@ -1,48 +1,7 @@
 {
  "format": "hydantoin-mechanism-annotations",
  "mechanisms": {},
- "removed": {
-  "O|S13b": {
-   "at": "2026-11-08T06:51:29.590Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S38a": {
-   "at": "2026-11-08T06:51:53.768Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S93a": {
-   "at": "2026-11-08T06:50:21.369Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S93b": {
-   "at": "2026-11-08T06:49:31.017Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S114b": {
-   "at": "2026-11-08T05:41:36.195Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S129b": {
-   "at": "2026-11-08T05:41:29.995Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S174b": {
-   "at": "2026-11-08T05:58:01.658Z",
-   "by": "geoffreyweal",
-   "note": ""
-  },
-  "O|S192b": {
-   "at": "2026-11-08T05:57:57.526Z",
-   "by": "geoffreyweal",
-   "note": ""
-  }
- },
+ "removed": {},
  "species": {},
  "status": {},
  "steps": {},
