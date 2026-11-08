@@ -2,6 +2,11 @@
  "format": "hydantoin-mechanism-annotations",
  "mechanisms": {},
  "removed": {
+  "O|S13b": {
+   "at": "2026-11-08T06:51:29.590Z",
+   "by": "geoffreyweal",
+   "note": ""
+  },
   "O|S93a": {
    "at": "2026-11-08T06:50:21.369Z",
    "by": "geoffreyweal",
