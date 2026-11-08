@@ -1,0 +1,15 @@
+{
+ "format": "hydantoin-mechanism-annotations",
+ "mechanisms": {},
+ "removed": {
+  "O|S129b": {
+   "at": "2026-11-08T05:41:29.995Z",
+   "by": "geoffreyweal",
+   "note": ""
+  }
+ },
+ "species": {},
+ "status": {},
+ "steps": {},
+ "version": 2
+}
