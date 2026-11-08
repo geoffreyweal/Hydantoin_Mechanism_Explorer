@@ -941,7 +941,11 @@
       box.appendChild(h("div", { class: "hint" }, ["No route from the reactants to a product is left with this filter."]));
       return;
     }
-    if (NetGraph.isFull(G, vis)) {
+    // every state and arrow is laid out once (the pre-rendered network, or one layout with the additions); what is
+    // shown, greyed or hidden is then only a class, so removing, restoring or filtering moves nothing
+    net.show = { G: G, vis: vis, grey: grey, np: np };
+    var all = { node: G.nodes.map(function () { return true; }), edge: G.edges.map(function () { return true; }) };
+    if (G.nodes.length === G.nBase && G.edges.length === G.eBase) {
       net.want = "pre";
       if (net.kind !== "pre") {
         var t = document.createElement("div");
@@ -949,22 +953,23 @@
         setNetSVG(t.querySelector("svg"));
         net.kind = "pre"; net.src = null;
       }
-      markGrey(grey, np);
+      showIn(net.show);
       busy(false);
       if (net.needFit) netFit();
       afterNet();
       return;
     }
-    var src = NetGraph.dot(G, vis, grey, np);
+    var src = NetGraph.dot(G, all, null, null);
     net.want = src;
-    if (net.kind === "viz" && net.src === src) { busy(false); if (net.needFit) { netFit(); afterNet(); } return; }
+    if (net.kind === "viz" && net.src === src) { showIn(net.show); busy(false); if (net.needFit) netFit(); afterNet(); return; }
     busy(true);
     setTimeout(function () {         // lets "laying out…" show first
       if (net.want !== src) return;
-      NetGraph.render(G, vis, src).then(function (svg) {
+      NetGraph.render(G, all, src).then(function (svg) {
         if (net.want !== src) return;
         setNetSVG(svg);
         net.kind = "viz"; net.src = src;
+        showIn(net.show);
         busy(false);
         afterNet();
       }, function (err) {
@@ -972,6 +977,23 @@
         $("#netinfo").textContent = "Could not lay out the network: " + err.message;
       });
     }, 30);
+  }
+  function showIn(o) {               // hide (hid) and grey (rm: removed, np: not possible) the laid-out network in place
+    if (!net.el || !o) return;
+    var by = {};
+    $$("g.node, g.edge", net.el).forEach(function (g) {
+      (g.getAttribute("class") || "").split(/\s+/).forEach(function (c) { if (c.indexOf("k-") === 0) by[c] = g; });
+    });
+    function put(g, shown, rm, np) {
+      if (!g) return;
+      g.classList.toggle("hid", !shown); g.classList.toggle("rm", !!rm); g.classList.toggle("np", !!np);
+    }
+    o.G.nodes.forEach(function (n, i) {
+      put(by["k-" + n.name], o.vis.node[i], o.grey && o.grey.node[i], o.np && o.np.node[i]);
+    });
+    o.G.edges.forEach(function (e, i) {
+      put(by["k-e" + i], o.vis.edge[i], o.grey && o.grey.edge[i], o.np && o.np.edge[i]);
+    });
   }
   function afterNet() {
     netFind(query().text);

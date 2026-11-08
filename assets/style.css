@@ -192,6 +192,7 @@ body.can-edit .netbar .editonly { display: inline-flex; }
           border-bottom: 1px solid var(--line); }
 .netsub #netinfo { color: var(--ink); }
 #netview g.rm, #netview g.np { opacity: 0.28; filter: grayscale(1); }
+#netview g.hid { display: none; }
 #netview g.cur polygon, #netview g.cur rect { stroke: var(--user) !important; stroke-width: 7 !important; }
 .legend i.dash { height: 0; background: none; border-top: 3px dashed; border-radius: 0; }
 
