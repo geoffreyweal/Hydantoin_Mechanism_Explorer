@@ -54,7 +54,7 @@
     }
     NG.edges.forEach(function (e) {
       addEdge({ from: byName[e.from].i, to: byName[e.to].i, step: e.step, dir: e.dir, colour: e.colour, name: e.name,
-                mechs: e.mechs.slice(), base: true, user: null });
+                mechs: e.mechs.slice(), eq: e.eq === true, both: e.both === true, base: true, user: null });
     });
     var nBase = nodes.length, eBase = edges.length;
     function speciesInfo(id) {
@@ -117,7 +117,11 @@
      "hide" and "only" then keep only what lies on a route from the reactants (R1 + R2) to a product. */
   function onRoutes(G, edgeOK, nodeOK) {
     var out = G.nodes.map(function () { return []; }), inc = G.nodes.map(function () { return []; });
-    G.edges.forEach(function (e, i) { if (edgeOK[i]) { out[e.from].push(e.to); inc[e.to].push(e.from); } });
+    G.edges.forEach(function (e, i) {
+      if (!edgeOK[i]) return;
+      out[e.from].push(e.to); inc[e.to].push(e.from);
+      if (e.both) { out[e.to].push(e.from); inc[e.from].push(e.to); }     // a step that mechanisms use both ways round
+    });
     function reach(seeds, adj) {
       var seen = G.nodes.map(function () { return false; }), todo = [];
       seeds.forEach(function (i) { if (nodeOK[i]) { seen[i] = true; todo.push(i); } });
@@ -130,7 +134,9 @@
     G.nodes.forEach(function (n, i) { if (n.kind === "start") starts.push(i); if (n.kind === "product") prods.push(i); });
     var f = reach(starts, out), b = reach(prods, inc);
     return { node: G.nodes.map(function (n, i) { return f[i] && b[i]; }),
-             edge: G.edges.map(function (e, i) { return !!edgeOK[i] && f[e.from] && b[e.to]; }) };
+             edge: G.edges.map(function (e, i) {
+               return !!edgeOK[i] && ((f[e.from] && b[e.to]) || (!!e.both && f[e.to] && b[e.from]));
+             }) };
   }
   function visible(G, o) {
     var mode = o.mode, mCache = {};
@@ -192,7 +198,7 @@
                '", dir=none, penwidth=' + (e.base ? "1.6" : "2.4") + "];");
       } else if (e.base) {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", color="' + e.colour + '", fontcolor="' + e.colour +
-               '", ' + (e.eq === true ? "dir=both, " : "") + 'label=<<B>' + esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
+               '", ' + (e.eq === true || e.both === true ? "dir=both, " : "") + 'label=<<B>' + esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
       } else {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", style=dashed, color="' + USER_COL + '", fontcolor="' +
                USER_COL + '", penwidth=2.8, label=<<B>' + esc(e.step + (e.dir === "rev" && e.user.kind === "hop" ? " (back)" : "")) +
