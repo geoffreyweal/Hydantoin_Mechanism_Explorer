@@ -1,7 +1,13 @@
 {
  "format": "hydantoin-mechanism-annotations",
  "mechanisms": {},
- "removed": {},
+ "removed": {
+  "O|S115": {
+   "at": "2026-11-08T06:57:43.207Z",
+   "by": "geoffreyweal",
+   "note": ""
+  }
+ },
  "species": {},
  "status": {},
  "steps": {},
