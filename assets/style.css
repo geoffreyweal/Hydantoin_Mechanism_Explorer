@@ -56,7 +56,10 @@ aside#famlist { width: 360px; flex: none; overflow: auto; border-right: 1px soli
 #mechview .lk:hover > rect.hit { fill: rgba(0, 0, 0, 0.05); }
 #netview g.node, #netview g.edge { cursor: pointer; }
 #netview g.node:hover polygon, #netview g.node:hover rect { stroke: #1f5fbf; stroke-width: 3; }
-#netview g.edge:hover path { stroke-width: 6; }
+#netview g.edge:hover path:not(.hit) { stroke-width: 6; }
+/* a wider invisible line along each arrow, so that it is easy to click or right-click (greyed ones too) */
+#netview path.hit { fill: none; stroke: transparent; stroke-width: 18px; pointer-events: stroke; }
+#netview.dragbox, #netview.dragbox * { cursor: grabbing !important; }
 #netview g.hl polygon { stroke: #e67e22 !important; stroke-width: 6 !important; }
 .legend { position: absolute; right: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
           padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow); max-width: 320px; }
@@ -186,18 +189,16 @@ tr.usr td.id { color: var(--user); }
 .netbar .netsel { margin-left: 8px; }
 .netbar .editonly { display: none; gap: 6px; }
 body.can-edit .netbar .editonly { display: inline-flex; }
-.netbar #addstep, .netbar #addmech { color: var(--user); border-color: var(--user); }
 .zoombar span.busy { color: var(--accent); font-weight: 600; margin-left: 4px; }
 .netsub { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 3px 10px; color: var(--muted); background: var(--panel);
           border-bottom: 1px solid var(--line); }
 .netsub #netinfo { color: var(--ink); }
 #netview g.rm, #netview g.np { opacity: 0.28; filter: grayscale(1); }
 #netview g.hid { display: none; }
-#netview g.cur polygon, #netview g.cur rect { stroke: var(--user) !important; stroke-width: 7 !important; }
 .legend i.dash { height: 0; background: none; border-top: 3px dashed; border-radius: 0; }
 
-/* ---------------------------------------------------------------- forms (add a step, build a mechanism) */
-.form, .builder { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+/* ---------------------------------------------------------------- the form to add a step */
+.form { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .field { display: flex; flex-direction: column; gap: 3px; font-weight: 600; font-size: 12.5px; }
 .field input, .field textarea, .side input[type=text] { font: inherit; font-weight: normal; padding: 5px 8px; border: 1px solid var(--line);
        border-radius: 6px; background: var(--bg); color: var(--ink); min-width: 0; }
@@ -208,18 +209,7 @@ body.can-edit .netbar .editonly { display: inline-flex; }
 .err { color: var(--bad); margin: 0; min-height: 1.2em; }
 fieldset.side { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px 8px; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 fieldset.side legend { font-weight: 650; padding: 0 4px; }
-fieldset.finish { border-color: var(--ok-line); background: var(--ok-soft); }
-.bpath { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; line-height: 1.9; }
-.bstate { background: var(--accent-soft); border-radius: 6px; padding: 1px 7px; font-weight: 650; white-space: nowrap; }
-.bstate a, .ucard a[data-mol], .hophead a[data-mol] { color: var(--accent); cursor: pointer; }
-.barrow { color: var(--muted); }
-.bopts { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
-.bopt { text-align: left; font: inherit; font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
-        background: var(--panel); color: var(--ink); cursor: pointer; }
-.bopt:hover { background: var(--hover); }
-.bopt.usr { border-style: dashed; border-color: var(--user); }
-.bopt .back { color: var(--warn); }
-.bopt .nm { color: var(--muted); }
+.ucard a[data-mol], .hophead a[data-mol] { color: var(--accent); cursor: pointer; }
 
 /* ---------------------------------------------------------------- a mechanism added by a collaborator, added steps and species */
 .upage { padding: 12px 16px 24px; background: var(--panel); color: var(--ink); min-height: 100%; }

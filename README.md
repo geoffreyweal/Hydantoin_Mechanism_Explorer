@@ -33,14 +33,17 @@ the folder. The online version is at <https://geoffreyweal.github.io/Hydantoin_M
   products. Drag to move, scroll to zoom, and click a box or an arrow. Grey arrows are proton transfers through
   the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out) or steps
   that mechanisms use both ways round. The **Show** menu filters the network by the statuses (see below).
+  **Drag a box** to move it; its arrows follow. Moved boxes stay where you put them until you reload the page or
+  press **reset positions**; nobody else sees them.
 - **Right-click** a step arrow (in the network or in a mechanism), a mechanism (in the list or above its drawing)
   or a box of the network for a short menu: open it and, for collaborators, mark it, clear the mark, remove it
-  from the network or put it back, or add a step from that box. Escape or a click elsewhere closes the menu.
+  from the network (until reload) or put it back, or add a step from that box. Greyed boxes and arrows have the
+  menu too. Escape or a click elsewhere closes the menu.
 - **Species / Steps.** Searchable lists; the Steps list shows each step's status. The search box also finds
   mechanisms (`M17`), species (`I52`) and steps (`S35a`). `is:possible`, `is:notpossible`, `is:conflict`,
   `is:unmarked`, `is:removed` and `is:added` filter the lists by the statuses and edits.
-- **Annotations.** Every status, removal and addition, with who made it and when, and a button to download them
-  all as `annotations.json`.
+- **Annotations.** Every status and addition, with who made it and when, and a button to download them all as
+  `annotations.json`.
 - **Links.** The address can open a view directly, for example `index.html#ch=S&m=M3A&step=S7b`,
   `#ch=O&mol=I7a`, `#tab=net&filter=grey` or `#tab=net&filter=hide`.
 
@@ -89,13 +92,14 @@ step window say where a status comes from: the item's own mark, or which steps.
 
 Changes are saved about 2 seconds after the last click, as one commit to the `annotations` branch (the header
 shows *unsaved changes*, *saving…*, *saved* or the error). If someone else saved in the meantime, the page reads
-their version, adds your changes to it and saves again; for each status or removal, the newer change wins.
+their version, adds your changes to it and saves again; for each status, the newer change wins. **undo** and
+**redo** on the Network tab (⌘Z / ⇧⌘Z, or Ctrl-Z / Ctrl-Y) take back or redo your own changes, one at a time.
 
 ### The network filter
 
 On the Network tab, **Show** offers:
 
-- **everything**: every step, less what has been removed (see below) and whatever a removal cuts off from every
+- **everything**: every step, less what you have removed (see below) and whatever a removal cuts off from every
   route to a product;
 - **grey out what is not possible**: everything, with what *hide* would leave out greyed;
 - **hide what is not possible**: leaves out the steps marked not possible and the mechanisms that are not
@@ -104,22 +108,23 @@ On the Network tab, **Show** offers:
 
 The filter uses the statuses of the chalcogen shown: a mark on the urea does not change the thiourea's network.
 An arrow is kept only while at least one mechanism that uses it is still allowed (a step added by a collaborator
-needs no mechanism); a step that mechanisms use both ways round can be followed either way. A filtered or edited
-network is laid out again in your browser with Graphviz (Viz.js, included in `assets/`).
+needs no mechanism); a step that mechanisms use both ways round can be followed either way. Filtering and removing
+only hide or grey boxes and arrows, so nothing moves. A network with added steps is laid out in your browser with
+Graphviz (Viz.js, included in `assets/`).
 
 ### Removing and adding
 
-- **remove from network** (next to the status buttons of a step or a mechanism) takes it out of the network for everyone;
-  **restore to network** puts it back. **show removed (greyed)** on the Network tab shows removed items again,
-  greyed.
-- **+ step** (Network tab) adds a step between two states: existing species or states (`I5a`, `I2 + I132a`), or a
-  new species given a name and, optionally, a SMILES. Give the step a name and a description, and say whether it
-  is for the urea, the thiourea or both. Added species get IDs UI1, UI2 …, added steps US1, US2 …; they are drawn
-  dashed in teal in the network.
-- **+ mechanism** opens the builder: start at R1 + R2 and pick the next step from those that leave the current
-  state (built-in or added, either way round), or add a new step on the spot, until you reach a product. Then
-  name it. Added mechanisms get IDs U1, U2 …, are listed under the mechanisms as *Added by collaborators*, and
-  their page shows the drawings of their steps in order (an added step is shown as a text card).
+- **remove from network (until reload)** (in a step's or a mechanism's bar, or in its right-click menu) takes it out
+  of the network to show you the rest. This lasts only on your page: it is not saved or shared, and a reload
+  brings everything back. **show removed (greyed)** shows what you removed, greyed: right-click it and choose
+  **put back in network** (the menu names what comes back when a box or an arrow is greyed because of something
+  else you removed). **restore all removed** puts everything back at once.
+- **Add a step**: right-click a box of the network and choose **add a step from …**. The step goes to a species or
+  state already in the network (`I5a`, `I2 + I132a`) or to a new species with a name and, if you like, a SMILES.
+  Give the step a name and a description, and say whether it is for the urea, the thiourea or both. Added species
+  get IDs UI1, UI2 …, added steps US1, US2 …; they are saved for everyone and drawn dashed in teal in the network.
+- Mechanisms added earlier by collaborators (U1, U2 …) are listed under the mechanisms as *Added by collaborators*;
+  their page shows the drawings of their steps in order.
 - You can delete what you added yourself (the **delete** button in its window), once nothing else uses it.
 
 ### Where the statuses are kept
@@ -135,7 +140,6 @@ and the file. Without a network, or when the file cannot be read, the site works
  "format": "hydantoin-mechanism-annotations", "version": 2,
  "status":     {"O|S7b": {"s": "no", "note": "too slow at rt", "by": "alice", "at": "2026-11-07T09:01:00.000Z"},
                 "O|M3A": {"s": "yes", "note": "", "by": "bob", "at": "…"}},
- "removed":    {"O|M3B": {"by": "bob", "at": "…", "note": "same as M3A here"}},
  "species":    {"UI1": {"name": "enol of I5a", "smiles": "OC(=C)…", "note": "", "ch": ["O"], "by": "alice", "at": "…", "uid": "…"}},
  "steps":      {"US1": {"from": "I5a", "to": "UI1", "name": "keto-enol tautomerism", "desc": "…", "ch": ["O"], "by": "alice", "at": "…", "uid": "…"}},
  "mechanisms": {"U1": {"name": "enol route", "desc": "…", "ch": ["O"], "product": "P1a", "by": "alice", "at": "…", "uid": "…",
@@ -147,7 +151,9 @@ and the file. Without a network, or when the file cannot be read, the site works
 Keys are `<O|S>|<ID>` (urea or thiourea). `s` is `yes` (possible) or `no` (not possible); only the item's own mark
 is stored, and the spreading is worked out by the page. States are species IDs joined by ` + ` as in mechflow
 (`I2 + I132a`, `2 P1a`); `dir` says whether a step is used forwards or backwards; `path` is the mechanism written
-as a mechflow path. The page checks everything it reads and ignores entries it does not understand.
+as a mechflow path. The page checks everything it reads and ignores entries it does not understand. Removals are
+not kept in the file: removals written there by an earlier version of the page are ignored, and dropped at the
+next save.
 
 ### Setting up sign-in (owner)
 

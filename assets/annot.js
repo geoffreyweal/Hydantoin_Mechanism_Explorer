@@ -3,8 +3,9 @@
    Everything is kept in one file, annotations.json, on its own branch of the site's GitHub repository (config.js):
      status[ch|id]  = {s: "yes"|"no", note, by, at}     a mechanism or step marked possible / not possible, per
                                                         chalcogen ("S|S7b"); one status per item, the last change wins
-     removed[ch|id] = {by, at, note}                    a mechanism or step taken out of the network
      species[UIn], steps[USn], mechanisms[Un]           added by a collaborator ({..., ch: ["O","S"], by, at, uid})
+   "Remove from network" is not kept there: a removal lasts only for this page (TEMP, gone after a reload) and is never
+   saved or shared. Removals that an earlier version wrote into the file are ignored, and dropped at the next save.
    Anyone can read it (raw.githubusercontent.com). Collaborators sign in with GitHub: "Sign in with GitHub" sends them
    to GitHub (the site's GitHub App, web flow, with a random state and a PKCE challenge); GitHub sends them back with
    a one-time code, which a small Cloudflare Worker (config.js tokenUrl, see signin_worker/) swaps for a user token,
@@ -14,7 +15,7 @@
 
    Each click becomes an operation in a queue. About 2 s after the last click the queue is applied to the file and
    saved as one commit (Contents API). If someone else saved in between (409/422), the file is read again and the
-   operations are applied to it again: for a status or a removal the newer change wins for that item. Everything read
+   operations are applied to it again: for a status the newer change wins for that item. Everything read
    from the file is checked and cleaned first, and is only ever shown as text. */
 (function () {
   "use strict";
@@ -110,7 +111,7 @@
     remote: empty(), sha: null, local: empty(), loaded: false, loadedAt: 0, source: "", error: "", broken: false,
     pending: [], saving: false, timer: null, save: { state: "idle", msg: "" }, notice: "", listeners: [], authError: "", leaving: false
   };
-  function empty() { return { format: "hydantoin-mechanism-annotations", version: 2, status: {}, removed: {}, species: {}, steps: {}, mechanisms: {} }; }
+  function empty() { return { format: "hydantoin-mechanism-annotations", version: 2, status: {}, species: {}, steps: {}, mechanisms: {} }; }
   function now() { return new Date().toISOString(); }
   function later(at) {             // now, but never before an earlier change of the same item (clocks differ a little)
     var t = Date.parse(at || "");
@@ -239,11 +240,7 @@
       var e = own(ST[k]);
       if (KEY.test(k) && (e.s === "yes" || e.s === "no") && LOGIN.test(e.by || "")) d.status[k] = { s: e.s, note: text(e.note, 300), by: e.by, at: time(e.at) };
     });
-    var R = own(raw.removed);
-    Object.keys(R).forEach(function (k) {
-      var e = own(R[k]);
-      if (KEY.test(k) && LOGIN.test(e.by || "")) d.removed[k] = { by: e.by, at: time(e.at), note: text(e.note, 300) };
-    });
+    // raw.removed (removals saved by an earlier version) is ignored: removals only last for one page now
     Object.keys(KINDS).forEach(function (kind) {
       var src = own(raw[kind]);
       Object.keys(src).forEach(function (id) {
@@ -298,14 +295,6 @@
         if (has(d.status, k) && newer(d.status[k].at, op.at)) return;
         if (op.s) d.status[k] = { s: op.s, note: op.note || "", by: login, at: op.at };
         else delete d.status[k];
-      } else if (op.t === "remove") {
-        k = m.key(op.key);
-        if (has(d.removed, k) && newer(d.removed[k].at, op.at)) return;
-        d.removed[k] = { by: login, at: op.at, note: op.note || "" };
-      } else if (op.t === "restore") {
-        k = m.key(op.key);
-        if (has(d.removed, k) && newer(d.removed[k].at, op.at)) return;
-        delete d.removed[k];
       } else if (op.t === "add") {
         var coll = d[op.kind], id = op.id, item = clone(op.item);
         if (has(coll, id) && coll[id].uid !== item.uid) { remap[op.id] = id = nextId(d, op.kind); m = mapper(remap); }
@@ -322,7 +311,7 @@
         Object.keys(c).forEach(function (cid) {
           if (c[cid].uid !== op.uid || c[cid].by !== login) return;
           delete c[cid];
-          ["O", "S"].forEach(function (ch) { delete d.status[ch + "|" + cid]; delete d.removed[ch + "|" + cid]; });
+          ["O", "S"].forEach(function (ch) { delete d.status[ch + "|" + cid]; });
         });
       }
     });
@@ -351,8 +340,6 @@
       op = own(op);
       var at = time(op.at) || now();
       if (op.t === "status" && KEY.test(op.key || "") && (op.s === "yes" || op.s === "no" || op.s === null)) return { t: "status", key: op.key, s: op.s, note: text(op.note, 300), at: at };
-      if (op.t === "remove" && KEY.test(op.key || "")) return { t: "remove", key: op.key, note: text(op.note, 300), at: at };
-      if (op.t === "restore" && KEY.test(op.key || "")) return { t: "restore", key: op.key, at: at };
       if (op.t === "add" && has(KINDS, op.kind) && KINDS[op.kind].re.test(op.id || "")) {
         var it = cleanItem(op.kind, op.item);
         return it && UID.test(it.uid) ? { t: "add", kind: op.kind, id: op.id, item: it, at: at } : null;
@@ -378,8 +365,6 @@
     var txt = parts.map(function (p) {
       var c = p.chs.length ? " (" + p.chs.sort().join(", ") + ")" : "";
       if (p.t === "status") return p.id + c + " " + p.what;
-      if (p.t === "remove") return "removed " + p.id + c;
-      if (p.t === "restore") return "restored " + p.id + c;
       if (p.t === "add") return "added " + KINDS[p.kind].word + " " + p.id;
       return "deleted " + KINDS[p.kind].word + " " + p.id;
     });
@@ -494,6 +479,7 @@
     });
   }
   var UNDO = [], REDO = [];          // this visit's changes, kept as the operations that take them back
+  var TEMP = Object.create(null);    // "remove from network": {"O|S7b": {by, at, note}}, this page only, never saved
   function invert(ops) {             // the operations that undo `ops`, from what the page shows now
     var inv = [];
     ops.forEach(function (op) {
@@ -501,7 +487,7 @@
         var cur = has(A.local.status, op.key) ? A.local.status[op.key] : null;
         inv.push({ t: "status", key: op.key, s: cur ? cur.s : null, note: cur ? cur.note || "" : "" });
       } else if (op.t === "remove" || op.t === "restore") {
-        var was = has(A.local.removed, op.key) ? A.local.removed[op.key] : null;
+        var was = TEMP[op.key] || null;
         inv.push(was ? { t: "remove", key: op.key, note: was.note || "" } : { t: "restore", key: op.key });
       } else if (op.t === "add") {
         inv.push({ t: "delete", kind: op.kind, id: op.id, uid: op.item.uid });
@@ -512,7 +498,7 @@
         ["O", "S"].forEach(function (ch) {
           var k = ch + "|" + op.id;
           if (has(A.local.status, k)) inv.push({ t: "status", key: k, s: A.local.status[k].s, note: A.local.status[k].note || "" });
-          if (has(A.local.removed, k)) inv.push({ t: "remove", key: k, note: A.local.removed[k].note || "" });
+          if (TEMP[k]) inv.push({ t: "remove", key: k, note: TEMP[k].note || "" });
         });
       }
     });
@@ -526,13 +512,17 @@
       if (!how) REDO.length = 0;
       if (UNDO.length > 200) UNDO.shift();
     }
+    var shared = 0;
     ops.forEach(function (op) {
-      var cur = op.t === "status" ? A.local.status[op.key] : op.t === "remove" || op.t === "restore" ? A.local.removed[op.key] : null;
-      op.at = later(cur && has(op.t === "status" ? A.local.status : A.local.removed, op.key) ? cur.at : "");
+      if (op.t === "remove") { TEMP[op.key] = { by: A.user.login, at: now(), note: op.note || "" }; return; }   // this page only
+      if (op.t === "restore") { delete TEMP[op.key]; return; }
+      if (op.t === "delete") ["O", "S"].forEach(function (ch) { delete TEMP[ch + "|" + op.id]; });
+      var cur = op.t === "status" && has(A.local.status, op.key) ? A.local.status[op.key] : null;
+      op.at = later(cur ? cur.at : "");
       A.pending.push(op);
+      shared++;
     });
-    recompute();
-    schedule();
+    if (shared) { recompute(); schedule(); }
     emit();
     return true;
   }
@@ -606,6 +596,7 @@
     clearTimeout(A.timer);
     forgetSession();
     A.token = ""; A.exp = 0; A.user = null; A.canEdit = false; A.repo = null; A.pending = []; A.pendingLogin = ""; A.branchOK = false; A.authError = "";
+    TEMP = Object.create(null); UNDO.length = 0; REDO.length = 0;      // a visitor sees the whole network again
     setSave("idle", "");
     return load();
   }
@@ -641,7 +632,8 @@
     takeRemap: function () { var r = A.lastRemap || {}; A.lastRemap = {}; return r; },
     doc: function () { return A.local; },
     statusOf: function (key) { return has(A.local.status, key) ? A.local.status[key] : null; },
-    removed: function (key) { return has(A.local.removed, key) ? A.local.removed[key] : null; },
+    removed: function (key) { return typeof key === "string" && TEMP[key] ? TEMP[key] : null; },        // this page only
+    removedKeys: function (ch) { return Object.keys(TEMP).filter(function (k) { return !ch || k.slice(0, 2) === ch + "|"; }).sort(); },
     isUser: function (id) { return has(A.local.species, id) || has(A.local.steps, id) || has(A.local.mechanisms, id); },
     nextId: function (kind) { return nextId(A.local, kind); },
     setStatus: function (keys, s, note) {
@@ -649,8 +641,11 @@
         return { t: "status", key: k, s: s === "yes" || s === "no" ? s : null, note: s ? text(note, 300) : "" };
       }));
     },
-    remove: function (keys, note) { return push(keys.map(function (k) { return { t: "remove", key: k, note: text(note, 300) }; })); },
-    restore: function (keys) { return push(keys.map(function (k) { return { t: "restore", key: k }; })); },
+    /* take out of / put back in the network: this page only (until a reload), one undo step for all the keys */
+    remove: function (keys, note) {
+      return push(keys.filter(function (k) { return KEY.test(k) && !TEMP[k]; }).map(function (k) { return { t: "remove", key: k, note: text(note, 300) }; }));
+    },
+    restore: function (keys) { return push(keys.filter(function (k) { return KEY.test(k) && !!TEMP[k]; }).map(function (k) { return { t: "restore", key: k }; })); },
     add: function (kind, item) {
       if (!has(KINDS, kind) || !A.user || !A.canEdit || !A.loaded) return null;
       var id = nextId(A.local, kind), it = cleanItem(kind, Object.assign({}, item, { by: A.user.login }));

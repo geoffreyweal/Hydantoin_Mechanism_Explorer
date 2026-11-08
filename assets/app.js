@@ -6,7 +6,7 @@
    put on the page as text (textContent, or esc() in HTML strings), never as HTML. */
 (function () {
   "use strict";
-  var S = { ch: "O", tab: "mech", mech: null, zoom: null, top: 100, both: false, netMode: "all", netRemoved: false, ts3d: false, builder: null };
+  var S = { ch: "O", tab: "mech", mech: null, zoom: null, top: 100, both: false, netMode: "all", netRemoved: false, ts3d: false };
   var MODES = ["all", "grey", "hide"];          // network: everything / grey out what is not possible / hide it
   var $ = function (s, el) { return (el || document).querySelector(s); };
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
@@ -14,6 +14,7 @@
   var WORD = { none: "unmarked", yes: "possible", no: "not possible", conflict: "conflict" };
   var TABS = ["mech", "net", "species", "steps", "annot", "about"];
   var NODRAW = "No drawing for this step yet: rebuild the website (make_website.py) to draw it.";
+  var RM_LABEL = "remove from network (until reload)", PUT_BACK = "put back in network";   // removals last for this page only
 
   (function prefs() {                    // per-viewer conveniences only
     try {
@@ -132,7 +133,7 @@
   function badge(id, ch) {                           // the shown status and "removed", for the lists (HTML, escaped)
     var st = shownStatus(id, ch), rm = Annot.removed(key(ch, id)), out = "";
     if (st.state !== "none") out += "<span class='bdg st-" + st.state + "' title='" + esc(statusSource(st, ch)) + "'>" + esc(statusText(st)) + "</span>";
-    if (rm) out += "<span class='bdg rmv' title='" + esc("removed from the network by @" + rm.by + (rm.note ? ": " + rm.note : "")) + "'>removed</span>";
+    if (rm) out += "<span class='bdg rmv' title='removed from the network on this page, until you reload (not saved)'>removed</span>";
     return out;
   }
   function mechsUsing(sid, ch) {                     // the mechanisms (built-in and added) that use a step
@@ -151,7 +152,7 @@
         h("button", { class: "vb clr", "data-v": "clear", title: "take the mark away" }, ["clear"]),
         h("input", { class: "vnote", type: "text", maxlength: "300", placeholder: "short note (optional)", "aria-label": "note" }),
         h("label", { class: "vboth", title: "apply to the urea and the thiourea" }, [h("input", { type: "checkbox" }), " urea and thiourea"]),
-        h("button", { class: "vrm", title: "take it out of the network (or put it back)" }, ["remove from network"])
+        h("button", { class: "vrm", title: "take it out of the network on this page, until you reload (not saved, not shared)" }, [RM_LABEL])
       ]),
       h("span", { class: "vhint" }),
       h("div", { class: "vsrc" }),
@@ -178,7 +179,7 @@
     if (!el._typed && document.activeElement !== vn) vn.value = mine ? mine.note || "" : "";
     $(".vboth input", el).checked = S.both;
     var rb = $(".vrm", el);
-    rb.textContent = rm ? "restore to network" : "remove from network"; rb.classList.toggle("on", !!rm);
+    rb.textContent = rm ? PUT_BACK : RM_LABEL; rb.classList.toggle("on", !!rm);
     $(".vhint", el).textContent = edit ? "" : !Annot.loaded ? (Annot.error ? "annotations unavailable" : "loading…") :
       !Annot.user ? (Annot.signInReady ? "Sign in (top right) to mark it." : "") :
       !Annot.hasPush ? "@" + Annot.user.login + " has no push access, so this is read only" : "";
@@ -191,19 +192,21 @@
     $(".vsrc", el).hidden = !src;
     var rmd = $(".vrmd", el);
     rmd.hidden = !rm;
-    rmd.textContent = rm ? "Removed from the network (" + CHN[ch] + ") by @" + rm.by + (rm.at ? " on " + day(rm.at) : "") + (rm.note ? ": " + rm.note : "") : "";
+    rmd.textContent = rm ? "Removed from the " + CHN[ch] + "'s network on this page, until you reload (not saved)." : "";
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest(".vote button");
     if (!b || !Annot.canEdit) return;
     var el = b.closest(".vote"), id = el.getAttribute("data-id"), ch = el.getAttribute("data-ch");
     var keys = ($(".vboth input", el).checked ? ["O", "S"] : [ch]).filter(function (c) { return exists(id, c); }).map(function (c) { return key(c, id); });
+    if (b.classList.contains("vrm")) {                 // this page only: the note stays for a mark
+      if (Annot.removed(key(ch, id))) Annot.restore(keys);
+      else Annot.remove(keys, "");
+      return;
+    }
     var note = $(".vnote", el).value;
     el._typed = false;
-    if (b.classList.contains("vrm")) {
-      if (Annot.removed(key(ch, id))) Annot.restore(keys.filter(function (k) { return Annot.removed(k); }));
-      else Annot.remove(keys, note);
-    } else if (b.getAttribute("data-v") === "clear") {
+    if (b.getAttribute("data-v") === "clear") {
       Annot.setStatus(keys.filter(function (k) { return Annot.statusOf(k); }), null, "");
     } else Annot.setStatus(keys, b.getAttribute("data-v"), note);
   });
@@ -580,25 +583,52 @@
   function noEditLine() {           // what someone who cannot mark or edit sees in a menu
     return { disabled: true, label: !Annot.loaded ? "marks unavailable" : Annot.user && !Annot.hasPush ? "read only: no push access" : "sign in to mark or edit" };
   }
-  function markItems(id, ch) {      // possible / not possible / clear / urea and thiourea / remove or restore
+  /* possible / not possible / clear / urea and thiourea, then remove (until reload) or put back; noRemove: without
+     the last two (a greyed item has its own "put back") */
+  function markItems(id, ch, noRemove) {
     var keys = function () { return (S.both ? ["O", "S"] : [ch]).filter(function (c) { return exists(id, c); }).map(function (c) { return key(c, id); }); };
-    var mine = ownStatus(id, ch), rm = Annot.removed(key(ch, id));
-    return [
+    var mine = ownStatus(id, ch), gone = Annot.removed(key(ch, id));
+    var out = [
       { label: "✓ mark possible", act: function () { Annot.setStatus(keys(), "yes", ""); } },
       { label: "✗ mark not possible", act: function () { Annot.setStatus(keys(), "no", ""); } },
       { label: "clear the mark", disabled: !mine, act: function () { Annot.setStatus(keys().filter(function (k) { return Annot.statusOf(k); }), null, ""); } },
-      { label: "urea and thiourea", check: S.both, act: function (on) { S.both = on; savePrefs(); $$(".vboth input").forEach(function (x) { x.checked = on; }); } },
-      "-",
-      rm ? { label: "restore to network", act: function () { Annot.restore(keys().filter(function (k) { return Annot.removed(k); })); } }
-         : { label: "remove from network", act: function () { Annot.remove(keys(), ""); } }
+      { label: "urea and thiourea", check: S.both, act: function (on) { S.both = on; savePrefs(); $$(".vboth input").forEach(function (x) { x.checked = on; }); } }
     ];
+    if (!noRemove) out.push("-", gone ? { label: PUT_BACK, act: function () { Annot.restore(keys()); } }
+                                      : { label: RM_LABEL, act: function () { Annot.remove(keys(), ""); } });
+    return out;
   }
   function titleOf(id, ch, kind) { var st = kind === "mech" ? mechStatus(id, ch) : stepStatus(id, ch); return id + " · " + statusText(st); }
-  function stepMenu(e, sid, dir, ch) {
+  /* a box or an arrow of the network greyed as removed ("show removed"): the removals that keep it out, i.e. the ones
+     that, put back on their own, show it again (or all of them, when only that does) */
+  function putBackKeys(g) {
+    if (!g || !g.classList.contains("rm") || !net.show) return [];
+    var m = /(?:^|\s)k-([nue])(\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""), G = net.show.G, at = null;
+    if (!m) return [];
+    if (m[1] === "e") at = { kind: "edge", i: +m[2] };
+    else G.nodes.forEach(function (n, i) { if (n.name === m[1] + m[2]) at = { kind: "node", i: i }; });
+    var ch = S.ch, mode = S.netMode === "hide" ? "hide" : "all", all = Annot.removedKeys(ch);
+    if (!at || !all.length) return [];
+    function shows(back) {
+      var o = netOpts(mode, false), gone = o.removed;
+      o.removed = function (id) { return back.indexOf(key(ch, id)) < 0 && gone(id); };
+      return !!NetGraph.visible(G, o)[at.kind][at.i];
+    }
+    var one = all.filter(function (k) { return shows([k]); });
+    return one.length ? one : shows(all) ? all : [];
+  }
+  function putBackItem(keys, self) {  // "put back in network", naming what comes back when that is not the item itself
+    var ids = keys.map(function (k) { return k.split("|")[1]; });
+    return { label: PUT_BACK + (ids.length === 1 && ids[0] === self ? "" : " (" + few(ids) + ")"), act: function () { Annot.restore(keys); } };
+  }
+  function stepMenu(e, sid, dir, ch, g) {
     if (!isStep(sid, ch)) return false;
-    var back = dir === "rev" && !userStep(sid) && !!(baseStep(sid, ch) || {}).rev;
-    openMenu(e.clientX, e.clientY, titleOf(sid, ch, "step"), [{ label: "open " + sid + (back ? " (backwards)" : ""), act: function () { openStep(sid, back ? "rev" : "fwd"); } }]
-      .concat(Annot.canEdit ? markItems(sid, ch) : [noEditLine()]));
+    var back = dir === "rev" && !userStep(sid) && !!(baseStep(sid, ch) || {}).rev, pb = putBackKeys(g);
+    var items = [{ label: "open " + sid + (back ? " (backwards)" : ""), act: function () { openStep(sid, back ? "rev" : "fwd"); } }];
+    if (!Annot.canEdit) items.push(noEditLine());
+    else if (pb.length) items = items.concat([putBackItem(pb, sid), "-"], markItems(sid, ch, true));
+    else items = items.concat(markItems(sid, ch));
+    openMenu(e.clientX, e.clientY, titleOf(sid, ch, "step") + (g && g.classList.contains("rm") ? " · removed" : ""), items);
     return true;
   }
   function mechMenu(e, mid, ch) {
@@ -611,9 +641,13 @@
     var m = /(?:^|\s)k-([nu]\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""), node = null;
     if (m && net.G) net.G.nodes.forEach(function (n) { if (n.name === m[1]) node = n; });
     if (!node) return false;
-    var ch = S.ch;
-    openMenu(e.clientX, e.clientY, node.key, [{ label: "open " + node.key, act: function () { openMol(node.sp.slice()); } }]
-      .concat(Annot.canEdit ? [{ label: "add a step from " + node.key + "…", act: function () { addStepWin(ch, null, null, node.key); } }] : [noEditLine()]));
+    var ch = S.ch, items = [{ label: "open " + node.key, act: function () { openMol(node.sp.slice()); } }], pb = putBackKeys(g);
+    if (!Annot.canEdit) items.push(noEditLine());
+    else {
+      if (pb.length) items.push(putBackItem(pb, null));
+      items.push({ label: "add a step from " + node.key + "…", act: function () { addStepWin(ch, node.key); } });
+    }
+    openMenu(e.clientX, e.clientY, node.key + (g.classList.contains("rm") ? " · removed" : ""), items);
     return true;
   }
   document.addEventListener("contextmenu", function (e) {
@@ -622,7 +656,7 @@
     if (t.closest(".ctxmenu")) { e.preventDefault(); return; }
     var g = t.closest("#netview g.edge, #netview g.node"), lk = t.closest("#mechview .lk, #mechview .steplink");
     var mb = t.closest("#famlist button[data-m], #famlist .fam.umech[data-m]");
-    if (g && (g.id || "").indexOf("st|") === 0) { var q = g.id.split("|"); done = stepMenu(e, q[1], q[2], S.ch); }
+    if (g && (g.id || "").indexOf("st|") === 0) { var q = g.id.split("|"); done = stepMenu(e, q[1], q[2], S.ch, g); }
     else if (g && (g.id || "").indexOf("sp|") === 0) done = stateMenu(e, g);
     else if (lk) done = stepMenu(e, lk.getAttribute("data-step"), lk.getAttribute("data-dir"), S.ch);
     else if (mb) done = mechMenu(e, mb.getAttribute("data-m"), S.ch);
@@ -795,29 +829,44 @@
   $$(".zoombar button[data-z]").forEach(function (b) { b.onclick = function () { zoom(b.dataset.z); }; });
 
   // ------------------------------------------------------------------ network tab (pan / zoom, filter, layout of edited networks)
-  var net = { vb: null, el: null, full: null, kind: null, src: null, want: null, wired: false, G: null };
+  var net = { vb: null, el: null, full: null, kind: null, src: null, want: null, wired: false, G: null, geo: null, layout: null, moved: {} };
   function wireNet() {
     if (net.wired) return;
     net.wired = true;
     var box = $("#netview"), drag = null;
-    /* menu: this press closes a right-click menu (so it opens nothing); a menu still open at the release was opened
-       by this press (ctrl-click on a Mac) */
-    box.addEventListener("pointerdown", function (e) { if (net.el && e.button === 0) drag = { x: e.clientX, y: e.clientY, vb: net.vb.slice(), moved: false, menu: !!ctx }; });
+    /* A press on a box drags the box (once the mouse has moved a few pixels); anywhere else it pans. Without a move it
+       is a click: a box opens its species, an arrow its step. menu: this press closes a right-click menu (so it only
+       pans, and opens nothing); a menu still open at the release was opened by this press (ctrl-click on a Mac). */
+    box.addEventListener("pointerdown", function (e) {
+      if (!net.el || e.button !== 0) return;
+      var g = e.target.closest ? e.target.closest("g.node, g.edge") : null, nm = g && !ctx && g.classList.contains("node") ? nodeName(g) : null;
+      drag = { x: e.clientX, y: e.clientY, vb: net.vb.slice(), moved: false, menu: !!ctx, target: g,
+               node: nm && net.geo && net.geo.nodes[nm] ? nm : null };
+      if (drag.node) drag.from = (moves() || {})[nm] || [0, 0];
+      try { box.setPointerCapture(e.pointerId); } catch (x) { /* the drag still works inside the network */ }
+    });
     box.addEventListener("pointermove", function (e) {
       if (!drag) return;
       var r = box.getBoundingClientRect(), s = net.vb[2] / r.width;
       var dx = (e.clientX - drag.x) * s, dy = (e.clientY - drag.y) * s;
       if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4) drag.moved = true;
-      net.vb[0] = drag.vb[0] - dx; net.vb[1] = drag.vb[1] - dy; setVB();
+      if (!drag.node) { net.vb[0] = drag.vb[0] - dx; net.vb[1] = drag.vb[1] - dy; setVB(); return; }
+      if (!drag.moved) return;                         // a box only moves once it is clearly a drag, not a click
+      if (!drag.raised) { drag.raised = true; box.classList.add("dragbox"); toFront(drag.node); }
+      placeNode(drag.node, [drag.from[0] + dx, drag.from[1] + dy]);
     });
-    box.addEventListener("pointerup", function (e) {
+    function release(e) {
       var d = drag; drag = null;
-      if (e.button !== 0 || !d || d.moved || d.menu || ctx) return;          // a drag, the right button (its menu), or a menu
-      var g = e.target.closest("g.node, g.edge"); if (!g) return;
+      box.classList.remove("dragbox");
+      if (d && d.node && d.moved) { showNetButtons(); return; }
+      if (!e || e.button !== 0 || !d || d.moved || d.menu || ctx) return;    // a drag, the right button (its menu), or a menu
+      var g = d.target; if (!g) return;
       var id = g.id || "";
       if (id.indexOf("sp|") === 0) openMol(id.slice(3).split(" "));
       if (id.indexOf("st|") === 0) { var q = id.split("|"); openStep(q[1], q[2]); }
-    });
+    }
+    box.addEventListener("pointerup", release);
+    box.addEventListener("pointercancel", function () { release(null); });
     box.addEventListener("wheel", function (e) {
       closeMenu();
       if (!net.el) return;
@@ -858,17 +907,150 @@
     else net.vb = a.vb.slice();
     net.needFit = false; setVB(); return true;
   }
-  function setNetSVG(svg) {
+  function setNetSVG(svg, layout) {  // layout: "pre" (the network as built) or the Graphviz source laid out here
     var keep = viewAnchor();       // keep the view across redraws; only the first display and Fit fit the network
     var box = $("#netview");
     box.textContent = "";
     box.appendChild(svg);
     svg.removeAttribute("width"); svg.removeAttribute("height"); svg.style.width = "100%"; svg.style.height = "100%";
     net.el = svg;
+    net.layout = layout;
+    net.geo = buildGeo(svg);
+    applyMoves();                  // the boxes moved by hand in this layout (this page only)
     var b = svg.viewBox.baseVal;
     net.full = { x: b.x, y: b.y, width: b.width, height: b.height };
     if (!keep) netFit();
     else if (!restoreView(keep)) { net.pending = keep; net.needFit = true; }     // hidden tab: restore when shown
+  }
+
+  // ------------------------------------------------------------------ boxes moved by hand (this page only)
+  /* net.geo: the network as Graphviz drew it: each box (its rectangle) and each arrow (its curve, heads and label),
+     with the arrows of each box. net.moved[ch] = {layout, at: {box name: [dx, dy]}}: the boxes moved by hand in that
+     layout of that network. A moved box gets a translate(); its arrows are drawn again as curves between the sides of
+     the two boxes that face each other, with their heads and labels; an arrow whose boxes are back in place is drawn
+     as Graphviz drew it. Nothing is laid out again, so hiding, greying, filtering and the menus are not affected. */
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function nums(t) { return (String(t || "").match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || []).map(Number); }
+  function pts(t) { var a = nums(t), out = []; for (var i = 0; i + 1 < a.length; i += 2) out.push([a[i], a[i + 1]]); return out; }
+  function d2(p, q) { return (p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]); }
+  function unit(v) { var l = Math.sqrt(v[0] * v[0] + v[1] * v[1]) || 1; return [v[0] / l, v[1] / l]; }
+  function fmt(p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }
+  function nodeName(g) { var m = /(?:^|\s)k-([nu]\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""); return m ? m[1] : null; }
+  function buildGeo(svg) {
+    var geo = { nodes: {}, edges: [], byNode: {} };
+    $$("g.node", svg).forEach(function (g) {
+      var nm = nodeName(g), poly = g.querySelector("polygon"), q = poly ? pts(poly.getAttribute("points")) : [];   // the box's outline
+      if (!nm || !q.length) return;
+      var xs = q.map(function (p) { return p[0]; }), ys = q.map(function (p) { return p[1]; });
+      geo.nodes[nm] = { g: g, x0: Math.min.apply(null, xs), y0: Math.min.apply(null, ys), x1: Math.max.apply(null, xs), y1: Math.max.apply(null, ys) };
+    });
+    $$("g.edge", svg).forEach(function (g) {
+      var t = g.querySelector("title"), m = t && /^(\w+)->(\w+)$/.exec(t.textContent.trim()), path = g.querySelector("path");
+      if (!m || !path || !geo.nodes[m[1]] || !geo.nodes[m[2]]) return;
+      var c = pts(path.getAttribute("d"));
+      if (c.length < 4 || (c.length - 1) % 3) return;               // Graphviz's splines: M p C p p p …
+      var hit = document.createElementNS(SVGNS, "path");             // a wider invisible line, easier to click
+      hit.setAttribute("class", "hit");
+      hit.setAttribute("d", path.getAttribute("d"));
+      path.parentNode.insertBefore(hit, path);
+      var E = { tail: m[1], head: m[2], path: path, hit: hit, d0: path.getAttribute("d"), heads: [], label: null };
+      var p0 = c[0], p1 = c[c.length - 1];
+      $$("polygon", g).forEach(function (pg) {                      // arrow heads: at the end they are nearest to
+        var q = pts(pg.getAttribute("points"));
+        if (!q.length) return;
+        var mid = q.reduce(function (a, p) { return [a[0] + p[0] / q.length, a[1] + p[1] / q.length]; }, [0, 0]);
+        var end = d2(mid, p1) <= d2(mid, p0), base = end ? p1 : p0, tip = q[0];
+        q.forEach(function (p) { if (d2(p, base) > d2(tip, base)) tip = p; });
+        E.heads.push({ el: pg, pts0: pg.getAttribute("points"), q: q, end: end ? "head" : "tail", base: base, tip: tip, len: Math.sqrt(d2(tip, base)) });
+      });
+      var tx = g.querySelector("text");
+      if (tx) E.label = { el: tx, x: tx.getAttribute("x"), y: tx.getAttribute("y"), anchor: tx.getAttribute("text-anchor") };
+      var k = geo.edges.push(E) - 1;
+      (geo.byNode[E.tail] = geo.byNode[E.tail] || []).push(k);
+      if (E.head !== E.tail) (geo.byNode[E.head] = geo.byNode[E.head] || []).push(k);
+    });
+    return geo;
+  }
+  function moves() {                 // the boxes moved by hand in the network shown, or null
+    var m = net.moved[S.ch];
+    return m && m.layout === net.layout ? m.at : null;
+  }
+  function nodeRect(nm) {
+    var n = net.geo.nodes[nm], d = (moves() || {})[nm] || [0, 0];
+    return { x0: n.x0 + d[0], y0: n.y0 + d[1], x1: n.x1 + d[0], y1: n.y1 + d[1] };
+  }
+  function exitPoint(R, from, to) {  // where the line from `from` (inside the box) towards `to` leaves the box
+    var dx = to[0] - from[0], dy = to[1] - from[1], hw = (R.x1 - R.x0) / 2, hh = (R.y1 - R.y0) / 2;
+    var f = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity, 1);
+    return [from[0] + dx * f, from[1] + dy * f];
+  }
+  function drawEdge(E) {
+    var M = moves() || {};
+    if (!M[E.tail] && !M[E.head]) {                                  // both boxes in place: as Graphviz drew it
+      E.path.setAttribute("d", E.d0); E.hit.setAttribute("d", E.d0);
+      E.heads.forEach(function (a) { a.el.setAttribute("points", a.pts0); });
+      if (E.label) {
+        E.label.el.setAttribute("x", E.label.x); E.label.el.setAttribute("y", E.label.y);
+        if (E.label.anchor) E.label.el.setAttribute("text-anchor", E.label.anchor); else E.label.el.removeAttribute("text-anchor");
+      }
+      return;
+    }
+    var A = nodeRect(E.tail), B = nodeRect(E.head), ca = [(A.x0 + A.x1) / 2, (A.y0 + A.y1) / 2], cb = [(B.x0 + B.x1) / 2, (B.y0 + B.y1) / 2];
+    var pa = exitPoint(A, ca, cb), pb = exitPoint(B, cb, ca), u = unit([pb[0] - pa[0], pb[1] - pa[1]]), n = [-u[1], u[0]];
+    var ts = unit([u[0] + 0.25 * n[0], u[1] + 0.25 * n[1]]), te = unit([u[0] - 0.25 * n[0], u[1] - 0.25 * n[1]]);   // a gentle bow
+    var lt = 0, lh = 0;
+    E.heads.forEach(function (a) { if (a.end === "head") lh = a.len; else lt = a.len; });
+    var s = [pa[0] + ts[0] * lt, pa[1] + ts[1] * lt], e = [pb[0] - te[0] * lh, pb[1] - te[1] * lh], l = Math.sqrt(d2(s, e)) / 3;
+    var c1 = [s[0] + ts[0] * l, s[1] + ts[1] * l], c2 = [e[0] - te[0] * l, e[1] - te[1] * l];
+    var d = "M" + fmt(s) + "C" + fmt(c1) + " " + fmt(c2) + " " + fmt(e);
+    E.path.setAttribute("d", d); E.hit.setAttribute("d", d);
+    E.heads.forEach(function (a) {                                   // each head turned to the new direction, its tip on the box
+      var tip = a.end === "head" ? pb : pa, dir = a.end === "head" ? te : [-ts[0], -ts[1]], ax = unit([a.tip[0] - a.base[0], a.tip[1] - a.base[1]]);
+      var th = Math.atan2(dir[1], dir[0]) - Math.atan2(ax[1], ax[0]), cs = Math.cos(th), sn = Math.sin(th);
+      a.el.setAttribute("points", a.q.map(function (p) {
+        var x = p[0] - a.tip[0], y = p[1] - a.tip[1];
+        return fmt([tip[0] + cs * x - sn * y, tip[1] + sn * x + cs * y]);
+      }).join(" "));
+    });
+    if (E.label) {                    // the label beside the middle of the curve, on its outer side and clear of it
+      var mid = [(s[0] + 3 * c1[0] + 3 * c2[0] + e[0]) / 8, (s[1] + 3 * c1[1] + 3 * c2[1] + e[1]) / 8];
+      var fs = parseFloat(E.label.el.getAttribute("font-size")) || 20, w = 0.62 * fs * E.label.el.textContent.length;
+      var off = Math.abs(n[0]) * w / 2 + Math.abs(n[1]) * fs / 2 + 6;
+      E.label.el.setAttribute("x", (mid[0] + off * n[0]).toFixed(2));
+      E.label.el.setAttribute("y", (mid[1] + off * n[1] + 0.35 * fs).toFixed(2));
+      E.label.el.setAttribute("text-anchor", "middle");
+    }
+  }
+  function placeNode(nm, d) {        // move a box to d = [dx, dy] from where Graphviz put it, and draw its arrows again
+    var n = net.geo && net.geo.nodes[nm];
+    if (!n) return;
+    var m = net.moved[S.ch];
+    if (!m || m.layout !== net.layout) m = net.moved[S.ch] = { layout: net.layout, at: {} };
+    if (d && (d[0] || d[1])) { m.at[nm] = d; n.g.setAttribute("transform", "translate(" + d[0].toFixed(2) + " " + d[1].toFixed(2) + ")"); }
+    else { delete m.at[nm]; n.g.removeAttribute("transform"); }
+    (net.geo.byNode[nm] || []).forEach(function (k) { drawEdge(net.geo.edges[k]); });
+  }
+  function toFront(nm) {             // a moved box is drawn over the others (SVG draws in document order)
+    var g = net.geo && net.geo.nodes[nm] && net.geo.nodes[nm].g;
+    if (g && g.parentNode && g.parentNode.lastChild !== g) g.parentNode.appendChild(g);
+  }
+  function applyMoves() {            // after a new picture of the network: the moves of that layout, if any
+    var m = net.moved[S.ch];
+    if (m && m.layout !== net.layout) { net.moved[S.ch] = null; m = null; }      // laid out anew: the old moves do not fit
+    if (m) Object.keys(m.at).forEach(function (nm) { placeNode(nm, m.at[nm]); toFront(nm); });
+    showNetButtons();
+  }
+  function resetMoves() {            // every moved box back where Graphviz put it
+    var M = moves(), names = M ? Object.keys(M) : [];
+    names.forEach(function (nm) { placeNode(nm, null); });
+    net.moved[S.ch] = null;
+    showNetButtons();
+  }
+  function showNetButtons() {        // "restore all removed" and "reset positions", only when there is something to do
+    var n = Annot.removedKeys(S.ch).length, ra = $("#restoreall"), M = moves();
+    ra.hidden = !Annot.canEdit || !n;
+    ra.textContent = "restore all removed (" + n + ")";
+    $("#resetpos").hidden = !(M && Object.keys(M).length);
   }
   function setVB() { net.el.setAttribute("viewBox", net.vb.join(" ")); }
   function netFit() {
@@ -950,7 +1132,7 @@
       if (net.kind !== "pre") {
         var t = document.createElement("div");
         t.innerHTML = NETWORK_SVG[S.ch];
-        setNetSVG(t.querySelector("svg"));
+        setNetSVG(t.querySelector("svg"), "pre");
         net.kind = "pre"; net.src = null;
       }
       showIn(net.show);
@@ -967,7 +1149,7 @@
       if (net.want !== src) return;
       NetGraph.render(G, all, src).then(function (svg) {
         if (net.want !== src) return;
-        setNetSVG(svg);
+        setNetSVG(svg, src);
         net.kind = "viz"; net.src = src;
         showIn(net.show);
         busy(false);
@@ -997,7 +1179,6 @@
   }
   function afterNet() {
     netFind(query().text);
-    if (S.builder) S.builder.highlight();
   }
   var netTimer = null;
   function renderNetSoon() { clearTimeout(netTimer); netTimer = setTimeout(renderNet, 150); }
@@ -1011,8 +1192,9 @@
   });
   $("#netmode").addEventListener("change", function () { S.netMode = $("#netmode").value; savePrefs(); renderNet(); });
   $("#netremoved").addEventListener("change", function () { S.netRemoved = $("#netremoved").checked; savePrefs(); renderNet(); });
-  $("#addstep").addEventListener("click", function () { addStepWin(S.ch, null, null); });
   $("#undo").addEventListener("click", function () { Annot.undo(); });
+  $("#restoreall").addEventListener("click", function () { Annot.restore(Annot.removedKeys(S.ch)); });     // one step for undo
+  $("#resetpos").addEventListener("click", resetMoves);
   $("#redo").addEventListener("click", function () { Annot.redo(); });
   document.addEventListener("keydown", function (e) {     // ⌘Z / Ctrl-Z undo, ⇧⌘Z / Ctrl-Y redo (not while typing)
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
@@ -1022,7 +1204,6 @@
     if (k === "z" && !e.shiftKey) { if (Annot.undo()) e.preventDefault(); }
     else if ((k === "z" && e.shiftKey) || k === "y") { if (Annot.redo()) e.preventDefault(); }
   });
-  $("#addmech").addEventListener("click", function () { builderWin(); });
 
   // ------------------------------------------------------------------ adding a step (and maybe a new species)
   function normState(t) {
@@ -1031,16 +1212,15 @@
   function knownIn(id, chs) {
     return chs.every(function (c) { var u = userSpecies(id); return u ? u.ch.indexOf(c) >= 0 : !!baseSpecies(id, c); });
   }
-  function addStepWin(ch, fixedFrom, done, fromState) {
+  function addStepWin(ch, fromState) {          // opened from a box of the network (right-click)
     if (!Annot.canEdit) return;
     var G = NetGraph.model(ch, doc(), META.ch[ch]), listId = "states" + (++S.top), opts = {};
     G.nodes.forEach(function (n) { opts[n.key] = 1; });
     Object.keys(META.ch[ch].species).concat(Object.keys(doc().species)).forEach(function (s) { opts[s] = 1; });
     var dl = h("datalist", { id: listId }, Object.keys(opts).sort(nat).map(function (k) { return h("option", { value: k }); }));
     var body = makeWin("Add a step", "between two states, for the urea and/or the thiourea", 600);
-    function side(label, fixed, prefill) {
+    function side(label, prefill) {
       var fs = h("fieldset", { class: "side" }, [h("legend", null, [label])]);
-      if (fixed) { fs.appendChild(h("div", null, [h("b", null, [fixed]), h("span", { class: "note" }, ["  (where the new mechanism has got to)"])])); return { el: fs, get: function () { return { state: fixed }; } }; }
       var name = "r" + (++S.top), r1 = h("input", { type: "radio", name: name, checked: true }), r2 = h("input", { type: "radio", name: name });
       var inp = h("input", { type: "text", list: listId, placeholder: "I5a, I2 + I132a, P1a …", "aria-label": label + " state" });
       if (prefill) inp.value = prefill;
@@ -1053,7 +1233,7 @@
       sm.addEventListener("focus", function () { r2.checked = true; });
       return { el: fs, get: function () { return r2.checked ? { name: nm.value.trim(), smiles: sm.value.trim() } : { state: normState(inp.value) }; } };
     }
-    var a = side("From", fixedFrom, fromState), b = side("To"), name = h("input", { type: "text", maxlength: "120", placeholder: "e.g. 1,2-hydride shift C4 → C5" });
+    var a = side("From", fromState), b = side("To"), name = h("input", { type: "text", maxlength: "120", placeholder: "e.g. 1,2-hydride shift C4 → C5" });
     var desc = h("textarea", { rows: "3", maxlength: "1000", placeholder: "what happens: bonds made and broken, where the proton goes …" });
     var cO = h("input", { type: "checkbox", checked: ch === "O" || S.both }), cS = h("input", { type: "checkbox", checked: ch === "S" || S.both });
     var err = h("p", { class: "err", role: "alert" });
@@ -1081,116 +1261,12 @@
       var id = Annot.add("steps", { from: from, to: to, name: name.value.trim(), desc: desc.value.trim(), ch: chs });
       closeWin(body);
       toast("Added step " + id + ": " + from + " → " + to);
-      if (done) done(id, from, to);
     } }, ["Add step"]);
     body.appendChild(h("div", { class: "form" }, [dl, a.el, b.el,
       h("label", { class: "field" }, ["Name ", name]), h("label", { class: "field" }, ["Description ", desc]),
       h("div", { class: "row" }, [h("span", null, ["For: "]), h("label", { class: "chk" }, [cO, " urea (O)"]), h("label", { class: "chk" }, [cS, " thiourea (S)"])]),
       err, h("div", { class: "row" }, [ok, h("button", { class: "btn", onclick: function () { closeWin(body); } }, ["Cancel"])]),
       h("p", { class: "note" }, ["The step is drawn dashed in the network. It needs no mechanism; it can be marked possible or not possible like any other step."])]));
-  }
-
-  // ------------------------------------------------------------------ building a mechanism
-  function builderWin() {
-    if (!Annot.canEdit) return;
-    if (S.builder && S.builder.body.isConnected) { S.builder.body.closest(".win").style.zIndex = ++S.top; return; }
-    var ch = S.ch, hops = [], body = makeWin("New mechanism (" + CHN[ch] + ")", "start at the reactants and pick steps until a product", 660);
-    var form = { name: "", desc: "", O: ch === "O" || S.both, S: ch === "S" || S.both };   // kept when the window is redrawn
-    body.classList.add("builder");
-    var B = S.builder = { body: body, draw: draw, highlight: highlight };
-    function model() { return NetGraph.model(ch, doc(), META.ch[ch]); }
-    function current(G) {
-      if (!hops.length) return G.nodes.filter(function (n) { return n.kind === "start"; })[0];
-      return G.find(hops[hops.length - 1].to) || G.nodeFor(hops[hops.length - 1].to);
-    }
-    function options(G, cur) {
-      var seen = {}, out = [];
-      G.edges.forEach(function (e) {
-        var fwd = e.from === cur.i, back = e.to === cur.i;
-        if ((!fwd && !back) || (e.step && Annot.removed(key(ch, e.step)))) return;
-        var target = G.nodes[fwd ? e.to : e.from], dir = e.step ? (fwd ? e.dir || "fwd" : (e.dir === "rev" ? "fwd" : "rev")) : "fwd";
-        var k = target.i + ">" + (e.step || "") + ">" + dir;
-        if (seen[k] || target === cur) return;
-        seen[k] = 1;
-        out.push({ back: !fwd, target: target, e: e, hop: { step: e.step, dir: dir, from: cur.key, to: target.key } });
-      });
-      return out.sort(function (x, y) { return (x.back - y.back) || nat(x.e.step || "~", y.e.step || "~"); });
-    }
-    function chip(st) { return h("span", { class: "bstate" }, stateLinks(st)); }
-    function highlight() {
-      if (!net.el) return;
-      $$("g.cur", net.el).forEach(function (g) { g.classList.remove("cur"); });
-      if (!body.isConnected) return;
-      var G = model(), cur = current(G);
-      if (cur) $$("g.node", net.el).forEach(function (g) { if ((" " + (g.getAttribute("class") || "") + " ").indexOf(" k-" + cur.name + " ") >= 0) g.classList.add("cur"); });
-    }
-    function draw() {
-      if (!body.isConnected) { if (S.builder === B) S.builder = null; return; }
-      var G = model(), cur = current(G), start = G.nodes.filter(function (n) { return n.kind === "start"; })[0];
-      body.textContent = "";
-      var path = h("div", { class: "bpath" }, [chip(start.key)]);
-      hops.forEach(function (hp) {
-        path.appendChild(h("span", { class: "barrow" }, [" → " + (hp.step ? hp.step + (hp.dir === "rev" ? " (back)" : "") : "H⁺") + " → "]));
-        path.appendChild(chip(hp.to));
-      });
-      body.appendChild(path);
-      body.appendChild(h("div", { class: "row" }, [
-        h("button", { class: "btn", disabled: !hops.length, onclick: function () { hops.pop(); draw(); highlight(); } }, ["undo last step"]),
-        h("button", { class: "btn", disabled: !hops.length, onclick: function () { hops = []; draw(); highlight(); } }, ["start again"]),
-        h("span", { class: "note" }, ["Now at ", h("b", null, [cur ? cur.key : "?"]), cur && cur.kind === "product" ? " (a product)" : ""])
-      ]));
-      if (!cur) return;
-      var list = h("div", { class: "bopts" }), opts = options(G, cur);
-      opts.forEach(function (o) {
-        var e = o.e, st = e.step ? stepStatus(e.step, ch).state : "none";
-        var nm = e.step ? (userStep(e.step) ? userStep(e.step).name : chText((baseStep(e.step, ch) || {}).name || e.name)) : "proton transfer (no TS)";
-        list.appendChild(h("button", { class: "bopt" + (e.base ? "" : " usr"), onclick: function () { hops.push(o.hop); draw(); highlight(); } }, [
-          h("b", { style: e.base && e.step ? "color:" + e.colour : null }, [e.step ? e.step : "H⁺"]),
-          o.back ? h("span", { class: "back" }, [" backwards"]) : null, " → ", h("b", null, [o.target.key]), "  ", h("span", { class: "nm" }, [nm]),
-          st !== "none" ? h("span", { class: "bdg st-" + st }, [WORD[st]]) : null,
-          e.user ? h("span", { class: "by" }, [" added by @" + e.user.by]) : null
-        ]));
-      });
-      body.appendChild(h("div", { class: "vlabel" }, [opts.length ? "Next step from " + cur.key + ":" : "No step leaves " + cur.key + " yet."]));
-      body.appendChild(list);
-      body.appendChild(h("button", { class: "btn", onclick: function () {
-        addStepWin(ch, cur.key, function (id, from, to) { hops.push({ step: id, dir: "fwd", from: from, to: to }); draw(); highlight(); });
-      } }, ["+ a new step from " + cur.key + "…"]));
-      if (cur.kind === "product" && hops.length) {
-        var name = h("input", { type: "text", maxlength: "120", placeholder: "e.g. imine route with a late phenyl shift" });
-        var desc = h("textarea", { rows: "2", maxlength: "1000", placeholder: "optional: why this route is worth a look" });
-        var cO = h("input", { type: "checkbox", checked: form.O }), cS = h("input", { type: "checkbox", checked: form.S });
-        var err = h("p", { class: "err", role: "alert" });
-        name.value = form.name; desc.value = form.desc;
-        name.addEventListener("input", function () { form.name = name.value; });
-        desc.addEventListener("input", function () { form.desc = desc.value; });
-        cO.addEventListener("change", function () { form.O = cO.checked; });
-        cS.addEventListener("change", function () { form.S = cS.checked; });
-        body.appendChild(h("fieldset", { class: "side finish" }, [h("legend", null, ["Finish at " + cur.key]),
-          h("label", { class: "field" }, ["Name ", name]), h("label", { class: "field" }, ["Description ", desc]),
-          h("div", { class: "row" }, [h("span", null, ["For: "]), h("label", { class: "chk" }, [cO, " urea (O)"]), h("label", { class: "chk" }, [cS, " thiourea (S)"])]),
-          err,
-          h("button", { class: "btn primary", onclick: function () {
-            var chs = (cO.checked ? ["O"] : []).concat(cS.checked ? ["S"] : []);
-            if (!name.value.trim()) { err.textContent = "Give the mechanism a name."; return; }
-            if (!chs.length) { err.textContent = "Tick the urea, the thiourea or both."; return; }
-            if (!Annot.canEdit) { err.textContent = "You are no longer signed in as a collaborator."; return; }
-            var path = [start.key];
-            hops.forEach(function (hp) { if (hp.step) path.push(hp.step); path.push(hp.to); });
-            var id = Annot.add("mechanisms", { name: name.value.trim(), desc: desc.value.trim(), ch: chs, product: cur.key, hops: hops, path: path });
-            closeWin(body);
-            S.builder = null;
-            highlight();
-            if (chs.indexOf(S.ch) < 0) setCh(chs[0]);
-            setTab("mech");
-            showMech(id);
-            toast("Added mechanism " + id + " (saving…)");
-          } }, ["Save mechanism"])]));
-      }
-    }
-    draw();
-    highlight();
-    if (S.tab !== "net") setTab("net");
   }
 
   // ------------------------------------------------------------------ tables
@@ -1241,11 +1317,6 @@
       rows.push({ at: v.at, by: v.by, what: v.s === "yes" ? "✓ possible" : "✗ not possible", cls: v.s === "yes" ? "ok" : "bad", ch: q[0], id: q[1], note: v.note,
                   act: edit ? ["clear", function () { Annot.setStatus([k], null, ""); }] : null });
     });
-    Object.keys(d.removed).forEach(function (k) {
-      var q = k.split("|"), r = d.removed[k];
-      rows.push({ at: r.at, by: r.by, what: "removed from the network", cls: "rmv", ch: q[0], id: q[1], note: r.note,
-                  act: edit ? ["restore", function () { Annot.restore([k]); }] : null });
-    });
     ["species", "steps", "mechanisms"].forEach(function (kind) {
       Object.keys(d[kind]).forEach(function (id) {
         var it = d[kind][id], note = it.name;
@@ -1271,7 +1342,7 @@
     var blob = null;
     box.appendChild(h("div", { class: "annhead" }, [
       h("h2", null, ["Statuses and edits"]),
-      h("p", null, [plural(nv, "status", "statuses") + ", " + plural(Object.keys(d.removed).length, "removal") + ", " + plural(Object.keys(d.steps).length, "added step") + ", " +
+      h("p", null, [plural(nv, "status", "statuses") + ", " + plural(Object.keys(d.steps).length, "added step") + ", " +
         plural(Object.keys(d.species).length, "added species", "added species") + " and " + plural(Object.keys(d.mechanisms).length, "added mechanism") +
         (rows.length ? ", by " + plural(Object.keys(who).length, "collaborator") : "") + "."]),
       h("p", { class: "note" }, [src]),
@@ -1319,14 +1390,17 @@
       "possible or not possible, separately for the urea and the thiourea, with a short note if they like. Each item has one status: the last change " +
       "wins. A step marked not possible makes every mechanism that uses it not possible; a mechanism with no mark of its own whose steps are all " +
       "marked possible is possible; a mechanism marked possible that uses a step marked not possible is shown as a conflict. The badges say where a " +
-      "status comes from (its own mark, or which steps). Collaborators can also take mechanisms and steps out of the network, add steps and species, " +
-      "and build new mechanisms from the steps. Everyone sees all of it: as badges in the lists, in the step and mechanism views, and in the " +
-      "Annotations tab, which can download it all as <code>annotations.json</code>. Right-click a step arrow, a mechanism or a network box for a " +
-      "short menu.</p><p>The Network tab shows the network of the urea or the thiourea, with that chalcogen's statuses. <i>everything</i> shows " +
+      "status comes from (its own mark, or which steps). Collaborators can also add steps and species (right-click a box of the network). " +
+      "Everyone sees the statuses and additions: as badges in the lists, in the step and mechanism views, and in the " +
+      "Annotations tab, which can download them as <code>annotations.json</code>. Right-click a step arrow, a mechanism or a network box for a " +
+      "short menu; <i>undo</i> (⌘Z / Ctrl-Z) takes your last change back.</p><p>The Network tab shows the network of the urea or the thiourea, with that chalcogen's statuses. <i>everything</i> shows " +
       "every step that has not been removed; <i>hide what is not possible</i> leaves out the steps marked not possible and the mechanisms that are " +
       "not possible, and then everything that no longer lies on a route from the reactants to a product; <i>grey out what is not possible</i> " +
       "shows everything but greys what <i>hide</i> would leave out. An arrow stays only while a mechanism that uses it is still allowed (or a " +
       "collaborator added it as a step). Added steps and species are drawn dashed in teal. " +
+      "A collaborator can remove mechanisms and steps from the network to look at the rest: that lasts only for this page, until you reload, and is " +
+      "neither saved nor shared. <i>show removed (greyed)</i> shows them greyed (right-click one to put it back), and <i>restore all removed</i> " +
+      "puts everything back. Drag a box to move it; its arrows follow. Moved boxes go back with <i>reset positions</i> or a reload. " +
       "In the search box, <code>is:possible</code>, <code>is:notpossible</code>, <code>is:conflict</code>, <code>is:unmarked</code>, " +
       "<code>is:removed</code> and <code>is:added</code> filter the lists.</p>" +
       "<h2>After the DFT calculations</h2><p>Rebuild the site (<code>make_website.py</code>) and every step with a finished OptTS or IRC gets a “3D: DFT” tab.</p>";
@@ -1349,7 +1423,6 @@
     if (S.mech) showMech(S.mech);
     if (S.tab === "net") renderNet();
     if (S.tab === "annot") annotTab();
-    if (S.builder) S.builder.draw();
   }
   $("#tabs").addEventListener("click", function (e) { if (e.target.dataset.tab) setTab(e.target.dataset.tab); });
   $("#chsel").addEventListener("click", function (e) { if (e.target.dataset.ch) setCh(e.target.dataset.ch); });
@@ -1368,6 +1441,7 @@
     renderAuth();
     $("#undo").disabled = !Annot.canUndo();
     $("#redo").disabled = !Annot.canRedo();
+    showNetButtons();
     $$(".vote").forEach(function (el) { renderStatus(el); });
     var moved = Annot.takeRemap(), notice = Annot.takeNotice();
     if (S.mech && moved[S.mech]) S.mech = moved[S.mech];
@@ -1377,7 +1451,6 @@
     else if ($("#mechview .upage")) showMech(firstMech());
     if (S.tab === "annot") annotTab();
     if (S.tab === "net") renderNetSoon();
-    if (S.builder) S.builder.draw();
     if (firstLoad && Annot.loaded) {          // links to the collaborators' items need the annotations first
       firstLoad = false;
       if (H.m && userMech(H.m)) showMech(H.m);
