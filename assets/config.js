@@ -13,6 +13,6 @@ window.HME_CONFIG = {
   repo: "Hydantoin_Mechanism_Explorer",
   branch: "annotations",
   file: "annotations.json",
-  clientId: "",
-  tokenUrl: ""
+  clientId: "Iv23li7D6gvUidxSzFb9",
+  tokenUrl: "https://hme-signin.geoffrey-weal.workers.dev/token"
 };

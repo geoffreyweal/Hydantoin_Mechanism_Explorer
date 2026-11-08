@@ -7,7 +7,7 @@
      raw.githubusercontent.com (reading them) and the sign-in Worker: make_website.py writes the Worker's origin
      (from tokenUrl in config.js) into connect-src when it builds the site. file: is listed so that the page also works when
      opened from the disk. 'wasm-unsafe-eval' lets the vendored Graphviz (assets/viz-global.js) run. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'wasm-unsafe-eval'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'wasm-unsafe-eval'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com https://hme-signin.geoffrey-weal.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Hydantoin Mechanism Explorer</title>
 <link rel="icon" href="data:,">
