@@ -1012,6 +1012,16 @@
   $("#netmode").addEventListener("change", function () { S.netMode = $("#netmode").value; savePrefs(); renderNet(); });
   $("#netremoved").addEventListener("change", function () { S.netRemoved = $("#netremoved").checked; savePrefs(); renderNet(); });
   $("#addstep").addEventListener("click", function () { addStepWin(S.ch, null, null); });
+  $("#undo").addEventListener("click", function () { Annot.undo(); });
+  $("#redo").addEventListener("click", function () { Annot.redo(); });
+  document.addEventListener("keydown", function (e) {     // ⌘Z / Ctrl-Z undo, ⇧⌘Z / Ctrl-Y redo (not while typing)
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    var t = e.target, tag = t && t.tagName ? t.tagName.toUpperCase() : "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+    var k = (e.key || "").toLowerCase();
+    if (k === "z" && !e.shiftKey) { if (Annot.undo()) e.preventDefault(); }
+    else if ((k === "z" && e.shiftKey) || k === "y") { if (Annot.redo()) e.preventDefault(); }
+  });
   $("#addmech").addEventListener("click", function () { builderWin(); });
 
   // ------------------------------------------------------------------ adding a step (and maybe a new species)
@@ -1356,6 +1366,8 @@
   function onAnnot() {
     annotQ = null;
     renderAuth();
+    $("#undo").disabled = !Annot.canUndo();
+    $("#redo").disabled = !Annot.canRedo();
     $$(".vote").forEach(function (el) { renderStatus(el); });
     var moved = Annot.takeRemap(), notice = Annot.takeNotice();
     if (S.mech && moved[S.mech]) S.mech = moved[S.mech];

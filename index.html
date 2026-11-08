@@ -52,7 +52,7 @@
           <option value="hide">hide what is not possible</option>
         </select></label>
         <label class="chk"><input type="checkbox" id="netremoved"> show removed (greyed)</label>
-        <span class="editonly"><button id="addstep" title="Add a step between two states">+ step</button><button id="addmech" title="Build a new mechanism from the reactants to a product">+ mechanism</button></span>
+        <span class="editonly"><button id="addstep" title="Add a step between two states">+ step</button><button id="addmech" title="Build a new mechanism from the reactants to a product">+ mechanism</button><button id="undo" title="Undo your last change (⌘Z / Ctrl-Z)" disabled>&#8630; undo</button><button id="redo" title="Redo (⇧⌘Z / Ctrl-Y)" disabled>&#8631; redo</button></span>
         <span id="netbusy" class="busy" hidden>laying out&hellip;</span>
       </div>
       <div class="netsub small"><span>Drag to move, scroll to zoom, right-click for a menu. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out) or steps that mechanisms use both ways round.</span>

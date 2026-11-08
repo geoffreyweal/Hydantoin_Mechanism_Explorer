@@ -493,8 +493,39 @@
       setSave("error", msg);
     });
   }
-  function push(ops) {
+  var UNDO = [], REDO = [];          // this visit's changes, kept as the operations that take them back
+  function invert(ops) {             // the operations that undo `ops`, from what the page shows now
+    var inv = [];
+    ops.forEach(function (op) {
+      if (op.t === "status") {
+        var cur = has(A.local.status, op.key) ? A.local.status[op.key] : null;
+        inv.push({ t: "status", key: op.key, s: cur ? cur.s : null, note: cur ? cur.note || "" : "" });
+      } else if (op.t === "remove" || op.t === "restore") {
+        var was = has(A.local.removed, op.key) ? A.local.removed[op.key] : null;
+        inv.push(was ? { t: "remove", key: op.key, note: was.note || "" } : { t: "restore", key: op.key });
+      } else if (op.t === "add") {
+        inv.push({ t: "delete", kind: op.kind, id: op.id, uid: op.item.uid });
+      } else if (op.t === "delete") {
+        var it = has(A.local[op.kind], op.id) ? A.local[op.kind][op.id] : null;
+        if (!it) return;
+        inv.push({ t: "add", kind: op.kind, id: op.id, item: clone(it) });
+        ["O", "S"].forEach(function (ch) {
+          var k = ch + "|" + op.id;
+          if (has(A.local.status, k)) inv.push({ t: "status", key: k, s: A.local.status[k].s, note: A.local.status[k].note || "" });
+          if (has(A.local.removed, k)) inv.push({ t: "remove", key: k, note: A.local.removed[k].note || "" });
+        });
+      }
+    });
+    return inv.reverse();
+  }
+  function push(ops, how) {          // how: undefined (a change), "undo" or "redo"
     if (!A.user || !A.canEdit || !A.loaded) return false;      // never edit a file that could not be read
+    var inv = invert(ops);
+    if (inv.length) {
+      (how === "undo" ? REDO : UNDO).push(inv);
+      if (!how) REDO.length = 0;
+      if (UNDO.length > 200) UNDO.shift();
+    }
     ops.forEach(function (op) {
       var cur = op.t === "status" ? A.local.status[op.key] : op.t === "remove" || op.t === "restore" ? A.local.removed[op.key] : null;
       op.at = later(cur && has(op.t === "status" ? A.local.status : A.local.removed, op.key) ? cur.at : "");
@@ -633,7 +664,11 @@
       if (!it || !A.user || it.by !== A.user.login) return false;
       return push([{ t: "delete", kind: kind, id: id, uid: it.uid }]);
     },
-    json: function () { return JSON.stringify(sortKeys(A.local), null, 1) + "\n"; }
+    json: function () { return JSON.stringify(sortKeys(A.local), null, 1) + "\n"; },
+    undo: function () { var ops = UNDO.pop(); if (!ops) return false; if (push(clone(ops), "undo")) return true; UNDO.push(ops); return false; },
+    redo: function () { var ops = REDO.pop(); if (!ops) return false; if (push(clone(ops), "redo")) return true; REDO.push(ops); return false; },
+    canUndo: function () { return UNDO.length > 0 && !!A.user && !!A.canEdit && !!A.loaded; },
+    canRedo: function () { return REDO.length > 0 && !!A.user && !!A.canEdit && !!A.loaded; }
   };
   document.addEventListener("visibilitychange", function () {      // pick up the others' changes when coming back
     if (document.visibilityState === "visible" && A.loaded && !A.saving && !A.pending.length && Date.now() - A.loadedAt > 60000) load();
