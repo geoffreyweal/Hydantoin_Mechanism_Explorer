@@ -1,7 +1,7 @@
 /* Hydantoin Mechanism Explorer: the network as data (window.NetGraph).
 
-   data/network_graph.js (written by make_website.py) holds the states (boxes) and arrows of the network, with the
-   mechanisms that use each arrow. Here the collaborators' additions are put in, the network is filtered by the
+   data/network_graph_O.js and _S.js (written by make_website.py) hold the states (boxes) and arrows of the network of
+   each chalcogen (NETWORK_GRAPH.O, NETWORK_GRAPH.S), with the mechanisms that use each arrow. Here the collaborators' additions are put in, the network is filtered by the
    statuses, and a filtered or edited network is laid out again in the browser with Graphviz (Viz.js, WebAssembly, loaded only
    when needed). The element ids are those of the pre-rendered network: "sp|I5a" for a state, "st|S7b|fwd" for a step;
    every box and arrow also has a class "k-<name>" (boxes) or "k-e<index>" (arrows). */
@@ -37,7 +37,7 @@
 
   // ------------------------------------------------------------------ the graph of one chalcogen, with the additions
   function model(ch, doc, meta) {
-    var NG = window.NETWORK_GRAPH, nodes = [], edges = [], byName = {}, byCanon = {}, byEdge = {};
+    var NG = window.NETWORK_GRAPH[ch], nodes = [], edges = [], byName = {}, byCanon = {}, byEdge = {};
     NG.nodes.forEach(function (n) {
       var node = { i: nodes.length, name: n.n, key: n.key, sp: n.sp.slice(), label: n.label, kind: n.kind, img: n.img,
                    w: n.w, h: n.h, pw: n.pw, ph: n.ph, fill: n.fill, user: null };
@@ -104,17 +104,15 @@
   }
 
   // ------------------------------------------------------------------ what is shown
-  /* o.mode: "all" | "hide" (hide what is not possible) | "only" (only what is possible); o.showRemoved: removed items
-     count as there. o.removed(id), o.stepStatus(id) -> "yes" | "no" | "none" (a step's own mark) and
-     o.mechStatus(id) -> "yes" | "no" | "conflict" | "none" (a mechanism's shown status, with its steps' marks spread to
-     it) are for the chalcogen of the graph.
+  /* o.mode: "all" | "hide" (hide what is not possible); o.showRemoved: removed items count as there. o.removed(id),
+     o.stepStatus(id) -> "yes" | "no" | "none" (a step's own mark) and o.mechStatus(id) -> "yes" | "no" | "conflict" |
+     "none" (a mechanism's shown status, with its steps' marks spread to it) are for the chalcogen of the graph.
      "all": an arrow needs a mechanism that is not removed (a step added by a collaborator needs none); everything that
      is not removed is kept, less what a removal cuts off from every route from the reactants to a product (a new step
      that does not reach a product yet is still shown).
-     "hide": also leaves out the steps marked not possible and the mechanisms that are not possible.
-     "only": keeps only the steps marked possible and the steps of mechanisms that are possible (never a step marked
-     not possible).
-     "hide" and "only" then keep only what lies on a route from the reactants (R1 + R2) to a product. */
+     "hide": also leaves out the steps marked not possible and the mechanisms that are not possible, then keeps only
+     what lies on a route from the reactants (R1 + R2) to a product. ("grey out what is not possible" on the page draws
+     "all" and greys what "hide" would leave out.) */
   function onRoutes(G, edgeOK, nodeOK) {
     var out = G.nodes.map(function () { return []; }), inc = G.nodes.map(function () { return []; });
     G.edges.forEach(function (e, i) {
@@ -139,21 +137,19 @@
              }) };
   }
   function visible(G, o) {
-    var mode = o.mode, mCache = {};
+    var hide = o.mode === "hide", mCache = {};
     function rm(id) { return !o.showRemoved && !!o.removed(id); }
     function mech(m) { if (!has(mCache, m)) mCache[m] = o.mechStatus(m); return mCache[m]; }
     var nodeOK = G.nodes.map(function () { return true; });
     var edgeOK = G.edges.map(function (e) {
       if (e.step && rm(e.step)) return false;
       var userStep = !!(e.user && e.user.kind === "step"), live = e.mechs.filter(function (m) { return !rm(m); });
-      if (mode !== "hide" && mode !== "only") return userStep || live.length > 0;
-      var s = e.step ? o.stepStatus(e.step) : "none";
-      if (s === "no") return false;
-      if (mode === "hide") return userStep || live.some(function (m) { return mech(m) !== "no"; });
-      return (s === "yes" && (userStep || live.length > 0)) || live.some(function (m) { return mech(m) === "yes"; });
+      if (!hide) return userStep || live.length > 0;
+      if (e.step && o.stepStatus(e.step) === "no") return false;
+      return userStep || live.some(function (m) { return mech(m) !== "no"; });
     });
     var cur = onRoutes(G, edgeOK, nodeOK);
-    if (mode === "hide" || mode === "only") return cur;
+    if (hide) return cur;
     var every = onRoutes(G, G.edges.map(function () { return true; }), nodeOK);
     var ev = G.edges.map(function (e, i) { return edgeOK[i] && (cur.edge[i] || !every.edge[i]); });
     var nv = G.nodes.map(function (n) { return !n.user && (n.kind === "start" || n.kind === "product"); });
@@ -182,16 +178,18 @@
     return '<TABLE BORDER="2" STYLE="dashed" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" BGCOLOR="' + USER_FILL + '" COLOR="' +
       USER_COL + '">' + rows.join("") + '</TABLE>';
   }
-  function dot(G, vis, grey) {
-    var NG = window.NETWORK_GRAPH, L = ["digraph net {"].concat(NG.head);
+  /* grey: {node, edge} drawn greyed as removed (class rm); np: the same, greyed as not possible (class np) */
+  function dot(G, vis, grey, np) {
+    var NG = window.NETWORK_GRAPH[G.ch], L = ["digraph net {"].concat(NG.head);
+    function mark(set, i, kind, c) { return set && set[kind][i] ? " " + c : ""; }
     G.nodes.forEach(function (n, i) {
       if (!vis.node[i]) return;
-      var cls = "k-" + n.name + (n.user ? " usr" : "") + (grey && grey.node[i] ? " rm" : "");
+      var cls = "k-" + n.name + (n.user ? " usr" : "") + mark(grey, i, "node", "rm") + mark(np, i, "node", "np");
       L.push(n.name + ' [id="sp|' + n.sp.join(" ") + '", class="' + cls + '", label=<' + (n.user ? userLabel(n) : baseLabel(n)) + '>];');
     });
     G.edges.forEach(function (e, i) {
       if (!vis.edge[i]) return;
-      var a = G.nodes[e.from].name, b = G.nodes[e.to].name, cls = "k-e" + i + (e.user ? " usr" : "") + (grey && grey.edge[i] ? " rm" : "");
+      var a = G.nodes[e.from].name, b = G.nodes[e.to].name, cls = "k-e" + i + (e.user ? " usr" : "") + mark(grey, i, "edge", "rm") + mark(np, i, "edge", "np");
       var head = a + " -> " + b + " [";
       if (e.step === null) {
         L.push(head + 'id="pt|' + a + "|" + b + '", class="' + cls + '", style=dashed, color="' + (e.base ? NG.pt_colour : USER_COL) +
@@ -230,7 +228,7 @@
       Array.prototype.slice.call(el.attributes).forEach(function (a) {
         var n = a.name.toLowerCase();
         if (n.indexOf("on") === 0) el.removeAttribute(a.name);
-        else if (/(^|:)href$/.test(n) && !(el.localName === "image" && /^img\/net\/n\d+\.png$/.test(a.value))) el.removeAttribute(a.name);
+        else if (/(^|:)href$/.test(n) && !(el.localName === "image" && /^img\/net\/[OS]\/n\d+\.png$/.test(a.value))) el.removeAttribute(a.name);
       });
     });
     return root;

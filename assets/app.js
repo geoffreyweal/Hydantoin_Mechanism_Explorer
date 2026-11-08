@@ -6,7 +6,8 @@
    put on the page as text (textContent, or esc() in HTML strings), never as HTML. */
 (function () {
   "use strict";
-  var S = { ch: "O", tab: "mech", mech: null, zoom: null, top: 100, both: false, netMode: "all", netRemoved: false, builder: null };
+  var S = { ch: "O", tab: "mech", mech: null, zoom: null, top: 100, both: false, netMode: "all", netRemoved: false, ts3d: false, builder: null };
+  var MODES = ["all", "grey", "hide"];          // network: everything / grey out what is not possible / hide it
   var $ = function (s, el) { return (el || document).querySelector(s); };
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
   var CHN = { O: "urea", S: "thiourea" };
@@ -18,11 +19,12 @@
     try {
       var p = JSON.parse(localStorage.getItem("hme.prefs") || "{}");
       S.both = p.both === true; S.netRemoved = p.netRemoved === true;
-      if (["all", "hide", "only"].indexOf(p.netMode) >= 0) S.netMode = p.netMode;
+      if (MODES.indexOf(p.netMode) >= 0) S.netMode = p.netMode;
+      S.ts3d = p.ts3d === true;
     } catch (e) { /* no storage */ }
   })();
   function savePrefs() {
-    try { localStorage.setItem("hme.prefs", JSON.stringify({ both: S.both, netMode: S.netMode, netRemoved: S.netRemoved })); } catch (e) { /* no storage */ }
+    try { localStorage.setItem("hme.prefs", JSON.stringify({ both: S.both, netMode: S.netMode, netRemoved: S.netRemoved, ts3d: S.ts3d })); } catch (e) { /* no storage */ }
   }
 
   // ------------------------------------------------------------------ data files loaded on demand (works from file://)
@@ -402,17 +404,18 @@
     if (userStep(sid)) { openUserStep(sid); return; }
     var ch = S.ch, st = baseStep(sid, ch);
     if (!st) return;
-    dir = (dir === "rev" && st.rev) ? "rev" : "fwd";
-    var body = makeWin(sid + (dir === "rev" ? " (backwards)" : ""), chText(st.name) + "  (" + CHN[ch] + ")", 900);
+    var rev = dir === "rev" && !!st.rev;          // the step as a mechanism uses it backwards: drawn and played that way
+    dir = rev ? "rev" : "fwd";
+    var body = makeWin(sid + (rev ? " (backwards)" : ""), (rev ? "reverse of: " : "") + chText(st.name) + "  (" + CHN[ch] + ")", 900);
     body.innerHTML = "<div class='tabs'><button data-p='d' class='on'>Diagram</button><button data-p='p'>3D: TS guess and path</button>" +
       (st.dft.length ? "<button data-p='q'>3D: DFT</button>" : "") + "<button data-p='i'>Details</button></div>" +
-      "<div class='pane on' data-p='d'><div class='svgbox'>loading&hellip;</div></div>" +
+      "<div class='pane on' data-p='d'><div class='seg tsswitch' role='group' aria-label='TS picture' hidden><button data-ts='2d'>2D</button>" +
+      "<button data-ts='3d'>3D</button></div><div class='svgbox'>loading&hellip;</div></div>" +
       "<div class='pane' data-p='p'><div class='v3d'></div><div class='tools'><button data-a='play'>&#9654; Play</button>" +
-      "<input type='range' min='0' max='8' value='0'><span class='fr'></span><button data-a='ts'>TS guess</button>" +
+      "<input type='range' min='0' max='1' value='0' aria-label='image'><span class='fr'></span><button data-a='ts'>TS guess</button>" +
       "<button data-a='labels'>Key atoms</button><a download>path .xyz (ase gui)</a></div>" +
-      "<div class='info note'>Images from an IDPP interpolation (ASE NEB module) between the two sides of the step; the end that is not the " +
-      "SCAN start was made by changing the bonds and relaxing with a force field. The image marked TS guess has the scanned distance nearest " +
-      "a typical TS value. A picture and a starting idea, not a DFT result. Open the file with <code>ase gui " + esc(sid) + "_path.xyz</code>.</div></div>" +
+      "<div class='info note'>IDPP path (ASE NEB) between the two sides of the step" + (rev ? ", played backwards" : "") +
+      "; TS guess: the image whose scanned distance is nearest a typical TS value. Not a DFT result: <code>ase gui " + esc(sid) + "_path.xyz</code></div></div>" +
       (st.dft.length ? "<div class='pane' data-p='q'><div class='v3d'></div><div class='tools'><input type='range' min='0' value='0'><span class='fr'></span></div></div>" : "") +
       "<div class='pane' data-p='i'><div class='info'></div></div>";
     body.insertBefore(statusWidget(sid, ch, "step"), body.firstChild);
@@ -423,12 +426,28 @@
       $$(".pane", body).forEach(function (b) { b.classList.toggle("on", b.dataset.p === p); });
       if (p === "p") showPath(); if (p === "q") showDFT();
     });
-    if (st.drawn === false) $(".pane[data-p=d] .svgbox", body).textContent = NODRAW;
-    else load("step", ch, sid + "_" + dir).then(function (svg) { $(".pane[data-p=d] .svgbox", body).innerHTML = svg; })
-      .catch(function () { $(".pane[data-p=d] .svgbox", body).textContent = "No drawing for this step."; });
+    // the TS above the arrow: the 2D sketch (.ts2d) or the 3D TS guess (.ts3d), when the drawing has both
+    var dBox = $(".pane[data-p=d] .svgbox", body), sw = $(".pane[data-p=d] .tsswitch", body);
+    function show3d(on) {
+      dBox.classList.toggle("show3d", on);
+      $$("button", sw).forEach(function (b) { var o = (b.dataset.ts === "3d") === on; b.classList.toggle("on", o); b.setAttribute("aria-pressed", o ? "true" : "false"); });
+    }
+    sw.addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-ts]"); if (!b) return;
+      S.ts3d = b.dataset.ts === "3d"; savePrefs(); show3d(S.ts3d);
+    });
+    if (st.drawn === false) dBox.textContent = NODRAW;
+    else load("step", ch, sid + "_" + dir).then(function (svg) {
+      dBox.innerHTML = svg;
+      var both = !!dBox.querySelector(".ts3d") && !!dBox.querySelector(".ts2d");
+      sw.hidden = !both;
+      show3d(both && S.ts3d);
+    }).catch(function () { dBox.textContent = "No drawing for this step."; });
     var mechs = st.used_by.filter(function (m) { return baseMech(m, ch); });
     var umechs = usersOf(sid).filter(function (m) { return userMech(m) && userMech(m).ch.indexOf(ch) >= 0; });
-    $(".pane[data-p=i] .info", body).innerHTML = "<p><b>Reaction:</b> " + esc(st.reaction) + "</p>" +
+    var reaction = rev ? st.reaction.split(" -> ").reverse().join(" -> ") : st.reaction;
+    $(".pane[data-p=i] .info", body).innerHTML = "<p><b>Reaction" + (rev ? " (backwards)" : "") + ":</b> " + esc(reaction) +
+      (rev ? " <span class='note'>(reverse of " + esc(st.reaction) + ")</span>" : "") + "</p>" +
       "<p><b>SCAN in mechflow:</b> atoms " + st.scan.atoms.join(", ") + " (from " + esc(st.start) + "), " + (st.scan.mode === "stretch" ? "stretched" : "brought together") +
       " from " + st.scan.d0 + " to " + st.scan.to + " &Aring;.</p><p><b>Used by:</b> " +
       (mechs.length ? mechs.map(function (m) { return "<a data-m='" + esc(m) + "'>" + esc(m) + "</a>"; }).join(", ") : "no mechanism") + "</p>" +
@@ -441,37 +460,39 @@
       if (pv) return;
       if (st.path === false) { pv = true; $(".pane[data-p=p]", body).innerHTML = "<div class='info'>No TS guess or path for this step yet (make_paths.py, then rebuild the website).</div>"; return; }
       load("path", ch, sid).then(function (P) {
-        var pane = $(".pane[data-p=p]", body), fr = frames(P.xyz), v = viewer3d($(".v3d", pane));
+        var pane = $(".pane[data-p=p]", body), fr = frames(P.xyz), n = fr.length, v = viewer3d($(".v3d", pane));
         pv = v;
         v.addModelsAsFrames(P.xyz, "xyz"); styleAll(v, "ball"); v.zoomTo();
-        var slider = $("input[type=range]", pane), lab = $(".fr", pane), k = 0, timer = null, labels = false;
-        var ka = keyAtoms((xyzOf(st.start, ch) || "").split(/\r?\n/)[1]);
-        slider.max = fr.length - 1;
+        /* position k on the slider shows frame at(k): backwards, from the step's right side to its left side */
+        var at = function (k) { return rev ? n - 1 - k : k; }, tsFrame = typeof P.ts === "number" ? P.ts : 0;
+        var slider = $("input[type=range]", pane), lab = $(".fr", pane), k = at(tsFrame), timer = null, labels = false;
+        var ka = keyAtoms((xyzOf(st.start, ch) || "").split(/\r?\n/)[1]), d = Array.isArray(P.d) ? P.d : [];
+        slider.max = n - 1;
         $("a[download]", pane).href = "xyz/ts_guesses/Ch_" + ch + "/" + sid + "_path.xyz";
         function draw() {
-          var f = fr[k];
-          Promise.resolve(v.setFrame(k)).then(function () {
+          var j = at(k), f = fr[j];
+          Promise.resolve(v.setFrame(j)).then(function () {
             v.removeAllShapes(); v.removeAllLabels();
             (P.changed || []).forEach(function (pr) {
               var a = f.atoms[pr[0]], b = f.atoms[pr[1]];
-              v.addCylinder({ start: { x: a.x, y: a.y, z: a.z }, end: { x: b.x, y: b.y, z: b.z }, radius: 0.08, color: st.colour, dashed: true, fromCap: 1, toCap: 1 });
+              if (a && b) v.addCylinder({ start: { x: a.x, y: a.y, z: a.z }, end: { x: b.x, y: b.y, z: b.z }, radius: 0.08, color: st.colour, dashed: true, fromCap: 1, toCap: 1 });
             });
-            if (labels) Object.keys(ka).forEach(function (i) { var a = f.atoms[+i]; v.addLabel(ka[i], { position: { x: a.x, y: a.y, z: a.z }, fontSize: 11, fontColor: "black", backgroundColor: "white", backgroundOpacity: 0.75, inFront: true }); });
+            if (labels) Object.keys(ka).forEach(function (i) { var a = f.atoms[+i]; if (a) v.addLabel(ka[i], { position: { x: a.x, y: a.y, z: a.z }, fontSize: 11, fontColor: "black", backgroundColor: "white", backgroundOpacity: 0.75, inFront: true }); });
             v.render();
           });
           slider.value = k;
-          lab.textContent = "image " + k + "/" + (fr.length - 1) + (k === P.ts ? "  (TS guess)" : "") + (P.d[k] !== undefined ? "  d = " + P.d[k].toFixed(2) + " Å" : "");
+          lab.textContent = "image " + k + "/" + (n - 1) + (j === tsFrame ? "  (TS guess)" : "") + (typeof d[j] === "number" ? "  d = " + d[j].toFixed(2) + " Å" : "");
         }
-        k = P.ts || 0; draw();
+        draw();
         slider.oninput = function () { k = +slider.value; draw(); };
         $(".tools", pane).addEventListener("click", function (e) {
           var a = e.target.dataset.a;
-          if (a === "ts") { k = P.ts || 0; draw(); }
+          if (a === "ts") { k = at(tsFrame); draw(); }
           if (a === "labels") { labels = !labels; draw(); }
           if (a === "play") {
             if (timer) { clearInterval(timer); timer = null; e.target.innerHTML = "&#9654; Play"; return; }
             e.target.innerHTML = "&#10073;&#10073; Pause";
-            timer = setInterval(function () { k = (k + 1) % fr.length; draw(); }, 420);
+            timer = setInterval(function () { k = (k + 1) % n; draw(); }, Math.max(60, Math.round(4000 / n)));
           }
         });
       }).catch(function () { $(".pane[data-p=p]", body).innerHTML = "<div class='info'>No path for this step.</div>"; });
@@ -502,6 +523,112 @@
       deleteButton("steps", id)
     ]));
   }
+
+  // ------------------------------------------------------------------ right-click menus (steps, mechanisms, network boxes)
+  var ctx = null;
+  function closeMenu() { if (ctx) { ctx.remove(); ctx = null; } }
+  /* items: {label, act, disabled} | {label, check, act(on)} (a tick box) | "-" */
+  function openMenu(x, y, title, items) {
+    closeMenu();
+    var m = h("div", { class: "ctxmenu", role: "menu", "aria-label": title }, [h("div", { class: "ctxtitle" }, [title])]);
+    items.forEach(function (it) {
+      if (it === "-") { m.appendChild(h("div", { class: "ctxsep", role: "separator" })); return; }
+      if (it.check !== undefined) {
+        var cb = h("input", { type: "checkbox", checked: !!it.check, tabindex: "-1" });
+        var row = h("button", { class: "ctxitem ctxcheck", role: "menuitemcheckbox", "aria-checked": it.check ? "true" : "false" }, [cb, " " + it.label]);
+        row.addEventListener("click", function (e) {
+          e.preventDefault();
+          it.check = !it.check; cb.checked = it.check; row.setAttribute("aria-checked", it.check ? "true" : "false");
+          it.act(it.check);
+        });
+        m.appendChild(row);
+        return;
+      }
+      var b = h("button", { class: "ctxitem", role: "menuitem", disabled: !!it.disabled }, [it.label]);
+      if (!it.disabled) b.addEventListener("click", function () { closeMenu(); it.act(); });
+      m.appendChild(b);
+    });
+    document.body.appendChild(m);
+    var r = m.getBoundingClientRect();
+    m.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4)) + "px";
+    m.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) + "px";
+    ctx = m;
+    var first = $(".ctxitem:not([disabled])", m);
+    if (first) first.focus();
+  }
+  /* a press outside the menu closes it, and that press does nothing else (its click is swallowed, as with the
+     browser's own menus); dragging still works */
+  var swallow = false;
+  document.addEventListener("mousedown", function (e) {
+    swallow = !!ctx && !ctx.contains(e.target);
+    if (swallow) closeMenu();
+  }, true);
+  document.addEventListener("click", function (e) { if (swallow) { swallow = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  document.addEventListener("mouseup", function () { if (swallow) setTimeout(function () { swallow = false; }, 0); }, true);   // only that click
+  document.addEventListener("keydown", function (e) {
+    if (!ctx) return;
+    if (e.key === "Escape") { e.preventDefault(); closeMenu(); return; }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      var its = $$(".ctxitem:not([disabled])", ctx), i = its.indexOf(document.activeElement);
+      if (its.length) its[(i + (e.key === "ArrowDown" ? 1 : its.length - 1)) % its.length].focus();
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("blur", closeMenu);
+  window.addEventListener("resize", closeMenu);
+  document.addEventListener("scroll", closeMenu, true);
+  function noEditLine() {           // what someone who cannot mark or edit sees in a menu
+    return { disabled: true, label: !Annot.loaded ? "marks unavailable" : Annot.user && !Annot.hasPush ? "read only: no push access" : "sign in to mark or edit" };
+  }
+  function markItems(id, ch) {      // possible / not possible / clear / urea and thiourea / remove or restore
+    var keys = function () { return (S.both ? ["O", "S"] : [ch]).filter(function (c) { return exists(id, c); }).map(function (c) { return key(c, id); }); };
+    var mine = ownStatus(id, ch), rm = Annot.removed(key(ch, id));
+    return [
+      { label: "✓ mark possible", act: function () { Annot.setStatus(keys(), "yes", ""); } },
+      { label: "✗ mark not possible", act: function () { Annot.setStatus(keys(), "no", ""); } },
+      { label: "clear the mark", disabled: !mine, act: function () { Annot.setStatus(keys().filter(function (k) { return Annot.statusOf(k); }), null, ""); } },
+      { label: "urea and thiourea", check: S.both, act: function (on) { S.both = on; savePrefs(); $$(".vboth input").forEach(function (x) { x.checked = on; }); } },
+      "-",
+      rm ? { label: "restore to network", act: function () { Annot.restore(keys().filter(function (k) { return Annot.removed(k); })); } }
+         : { label: "remove from network", act: function () { Annot.remove(keys(), ""); } }
+    ];
+  }
+  function titleOf(id, ch, kind) { var st = kind === "mech" ? mechStatus(id, ch) : stepStatus(id, ch); return id + " · " + statusText(st); }
+  function stepMenu(e, sid, dir, ch) {
+    if (!isStep(sid, ch)) return false;
+    var back = dir === "rev" && !userStep(sid) && !!(baseStep(sid, ch) || {}).rev;
+    openMenu(e.clientX, e.clientY, titleOf(sid, ch, "step"), [{ label: "open " + sid + (back ? " (backwards)" : ""), act: function () { openStep(sid, back ? "rev" : "fwd"); } }]
+      .concat(Annot.canEdit ? markItems(sid, ch) : [noEditLine()]));
+    return true;
+  }
+  function mechMenu(e, mid, ch) {
+    if (!isMech(mid, ch)) return false;
+    openMenu(e.clientX, e.clientY, titleOf(mid, ch, "mech"), [{ label: "open " + mid, act: function () { setTab("mech"); showMech(mid); } }]
+      .concat(Annot.canEdit ? markItems(mid, ch) : [noEditLine()]));
+    return true;
+  }
+  function stateMenu(e, g) {
+    var m = /(?:^|\s)k-([nu]\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""), node = null;
+    if (m && net.G) net.G.nodes.forEach(function (n) { if (n.name === m[1]) node = n; });
+    if (!node) return false;
+    var ch = S.ch;
+    openMenu(e.clientX, e.clientY, node.key, [{ label: "open " + node.key, act: function () { openMol(node.sp.slice()); } }]
+      .concat(Annot.canEdit ? [{ label: "add a step from " + node.key + "…", act: function () { addStepWin(ch, null, null, node.key); } }] : [noEditLine()]));
+    return true;
+  }
+  document.addEventListener("contextmenu", function (e) {
+    var t = e.target, done = false;
+    if (!t || !t.closest || t.closest("input, textarea, select")) return;      // text fields keep the browser's menu (paste …)
+    if (t.closest(".ctxmenu")) { e.preventDefault(); return; }
+    var g = t.closest("#netview g.edge, #netview g.node"), lk = t.closest("#mechview .lk, #mechview .steplink");
+    var mb = t.closest("#famlist button[data-m], #famlist .fam.umech[data-m]");
+    if (g && (g.id || "").indexOf("st|") === 0) { var q = g.id.split("|"); done = stepMenu(e, q[1], q[2], S.ch); }
+    else if (g && (g.id || "").indexOf("sp|") === 0) done = stateMenu(e, g);
+    else if (lk) done = stepMenu(e, lk.getAttribute("data-step"), lk.getAttribute("data-dir"), S.ch);
+    else if (mb) done = mechMenu(e, mb.getAttribute("data-m"), S.ch);
+    else if (t.closest("#mechtitle, #mechbar") && S.mech) done = mechMenu(e, S.mech, S.ch);
+    if (done) e.preventDefault();
+  });
 
   // ------------------------------------------------------------------ mechanisms tab
   function query() {
@@ -603,6 +730,7 @@
     if (!st || st.drawn === false) { box.textContent = NODRAW; return; }
     load("step", S.ch, sid + "_" + d).then(function (svg) {
       box.innerHTML = svg;
+      box.classList.toggle("show3d", S.ts3d && !!box.querySelector(".ts3d"));
       if (d !== dir) box.insertBefore(h("div", { class: "note" }, ["Drawn forwards; this mechanism uses the step backwards."]), box.firstChild);
     }, function () { box.textContent = "No drawing for this step."; });
   }
@@ -672,7 +800,9 @@
     if (net.wired) return;
     net.wired = true;
     var box = $("#netview"), drag = null;
-    box.addEventListener("pointerdown", function (e) { if (net.el) drag = { x: e.clientX, y: e.clientY, vb: net.vb.slice(), moved: false }; });
+    /* menu: this press closes a right-click menu (so it opens nothing); a menu still open at the release was opened
+       by this press (ctrl-click on a Mac) */
+    box.addEventListener("pointerdown", function (e) { if (net.el && e.button === 0) drag = { x: e.clientX, y: e.clientY, vb: net.vb.slice(), moved: false, menu: !!ctx }; });
     box.addEventListener("pointermove", function (e) {
       if (!drag) return;
       var r = box.getBoundingClientRect(), s = net.vb[2] / r.width;
@@ -682,13 +812,14 @@
     });
     box.addEventListener("pointerup", function (e) {
       var d = drag; drag = null;
-      if (d && d.moved) return;
+      if (e.button !== 0 || !d || d.moved || d.menu || ctx) return;          // a drag, the right button (its menu), or a menu
       var g = e.target.closest("g.node, g.edge"); if (!g) return;
       var id = g.id || "";
       if (id.indexOf("sp|") === 0) openMol(id.slice(3).split(" "));
       if (id.indexOf("st|") === 0) { var q = id.split("|"); openStep(q[1], q[2]); }
     });
     box.addEventListener("wheel", function (e) {
+      closeMenu();
       if (!net.el) return;
       e.preventDefault();
       var r = box.getBoundingClientRect(), f = e.deltaY > 0 ? 1.15 : 1 / 1.15;
@@ -696,14 +827,16 @@
       net.vb[2] *= f; net.vb[3] *= f; net.vb[0] = mx - (e.clientX - r.left) / r.width * net.vb[2]; net.vb[1] = my - (e.clientY - r.top) / r.height * net.vb[3];
       setVB();
     }, { passive: false });
-    var NG = window.NETWORK_GRAPH, ptStep = NG.edges.some(function (e) { return e.pt && e.step; }), ptLine = NG.edges.some(function (e) { return !e.step; });
+  }
+  function netLegend() {          // the legend of the chalcogen shown
+    var NG = window.NETWORK_GRAPH[S.ch], ptStep = NG.edges.some(function (e) { return e.pt && e.step; }), ptLine = NG.edges.some(function (e) { return !e.step; });
     var lg = "<b>Arrow colour: where the redox happens</b>";
     Object.keys(NETWORK_GROUPS).forEach(function (g) { lg += "<div><i style='background:" + esc(NETWORK_GROUPS[g]) + "'></i>" + esc(chText(g)) + "</div>"; });
     if (ptStep) lg += "<div><i style='background:" + esc(NG.pt_step_colour) + "'></i>proton transfer through the acid catalyst (HA / A⁻)</div>";
     if (ptLine) lg += "<div><i class='dash' style='border-color:" + esc(NG.pt_colour) + "'></i>proton transfer (no step)</div>";
     lg += "<div><i class='dash' style='border-color:" + NetGraph.USER_COL + "'></i>added by a collaborator</div>" +
-      "<div><i style='background:#9aa3ad;opacity:0.5'></i>removed (with “show removed”)</div>";
-    $("#netlegend").innerHTML = lg + "<div class='note'>Structures drawn with S; Ch = O or S.</div>";
+      "<div><i style='background:#9aa3ad;opacity:0.5'></i>greyed: removed, or not possible (with “grey out”)</div>";
+    $("#netlegend").innerHTML = lg;
   }
   function setNetSVG(svg) {
     var box = $("#netview");
@@ -747,58 +880,59 @@
     a = a.matrixTransform(m); c = c.matrixTransform(m);
     return { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), width: Math.abs(c.x - a.x), height: Math.abs(c.y - a.y) };
   }
-  function netOpts(showRemoved) {
+  function netOpts(mode, showRemoved) {
     var ch = S.ch;
-    return { mode: S.netMode, showRemoved: showRemoved, removed: function (id) { return !!Annot.removed(key(ch, id)); },
+    return { mode: mode, showRemoved: showRemoved, removed: function (id) { return !!Annot.removed(key(ch, id)); },
              stepStatus: function (id) { return stepStatus(id, ch).state; }, mechStatus: function (id) { return mechStatus(id, ch).state; } };
   }
   function busy(on) { $("#netbusy").hidden = !on; }
-  function markGrey(grey) {        // greyed (removed) boxes and arrows in the pre-rendered network
+  function markGrey(grey, np) {    // greyed boxes and arrows in the pre-rendered network: removed (rm), not possible (np)
     $$("g.node, g.edge", net.el).forEach(function (g) {
-      var m = /(?:^|\s)k-(n|e)(\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""), on = false;
-      if (m && grey) on = m[1] === "n" ? !!grey.node[+m[2]] : !!grey.edge[+m[2]];
-      g.classList.toggle("rm", on);
+      var m = /(?:^|\s)k-(n|e)(\d+)(?:\s|$)/.exec(g.getAttribute("class") || ""), kind = m && (m[1] === "n" ? "node" : "edge");
+      g.classList.toggle("rm", !!(m && grey && grey[kind][+m[2]]));
+      g.classList.toggle("np", !!(m && np && np[kind][+m[2]]));
     });
   }
+  function minus(a, b) { return { node: a.node.map(function (v, i) { return v && !b.node[i]; }), edge: a.edge.map(function (v, i) { return v && !b.edge[i]; }) }; }
   function renderNet() {
     if (S.tab !== "net") return;
     wireNet();
-    var G = NetGraph.model(S.ch, doc(), M()), base = NetGraph.visible(G, netOpts(false)), vis = base, grey = null;
-    if (S.netRemoved) {
-      vis = NetGraph.visible(G, netOpts(true));
-      grey = { node: vis.node.map(function (v, i) { return v && !base.node[i]; }), edge: vis.edge.map(function (v, i) { return v && !base.edge[i]; }) };
-    }
+    if (net.ch !== S.ch) { net.ch = S.ch; net.kind = null; net.src = null; net.want = null; netLegend(); }   // the other chalcogen's network
+    var mode = S.netMode === "hide" ? "hide" : "all", G = NetGraph.model(S.ch, doc(), M());
+    var base = NetGraph.visible(G, netOpts(mode, false)), vis = base, grey = null, np = null;
+    if (S.netRemoved) { vis = NetGraph.visible(G, netOpts(mode, true)); grey = minus(vis, base); }
+    if (S.netMode === "grey") np = minus(base, NetGraph.visible(G, netOpts("hide", false)));    // what "hide" would leave out
     net.G = G;
     var count = function (a, n0, n1) { var c = 0; for (var i = n0; i < n1; i++) if (a[i]) c++; return c; };
     var nu = count(vis.node, G.nBase, G.nodes.length) + count(vis.edge, G.eBase, G.edges.length);
     var ng = grey ? count(grey.node, 0, G.nodes.length) + count(grey.edge, 0, G.edges.length) : 0;
+    var nn = np ? count(np.node, 0, G.nodes.length) + count(np.edge, 0, G.edges.length) : 0;
     $("#netinfo").textContent = count(vis.node, 0, G.nBase) + " of " + G.nBase + " states and " + count(vis.edge, 0, G.eBase) + " of " + G.eBase + " arrows" +
-      (nu ? ", " + nu + " added" : "") + (ng ? ", " + ng + " removed (grey)" : "") + (S.netMode !== "all" ? " · statuses for the " + CHN[S.ch] + " (" + S.ch + ")" : "");
+      (nu ? ", " + nu + " added" : "") + (ng ? ", " + ng + " removed (grey)" : "") + (nn ? ", " + nn + " not possible (grey)" : "") +
+      (S.netMode !== "all" ? " · statuses for the " + CHN[S.ch] + " (" + S.ch + ")" : "");
     if (!vis.node.some(Boolean)) {   // nothing left: say why instead of an empty picture
       net.want = "empty"; net.kind = "empty"; net.src = null; net.el = null;
       busy(false);
       var box = $("#netview");
       box.textContent = "";
-      box.appendChild(h("div", { class: "hint" }, [S.netMode === "only" ?
-        "Nothing marked possible for the " + CHN[S.ch] + " makes a route from the reactants to a product yet." :
-        "No route from the reactants to a product is left with this filter."]));
+      box.appendChild(h("div", { class: "hint" }, ["No route from the reactants to a product is left with this filter."]));
       return;
     }
     if (NetGraph.isFull(G, vis)) {
       net.want = "pre";
       if (net.kind !== "pre") {
         var t = document.createElement("div");
-        t.innerHTML = NETWORK_SVG;
+        t.innerHTML = NETWORK_SVG[S.ch];
         setNetSVG(t.querySelector("svg"));
         net.kind = "pre"; net.src = null;
       }
-      markGrey(grey);
+      markGrey(grey, np);
       busy(false);
       if (net.needFit) netFit();
       afterNet();
       return;
     }
-    var src = NetGraph.dot(G, vis, grey);
+    var src = NetGraph.dot(G, vis, grey, np);
     net.want = src;
     if (net.kind === "viz" && net.src === src) { busy(false); if (net.needFit) { netFit(); afterNet(); } return; }
     busy(true);
@@ -842,18 +976,19 @@
   function knownIn(id, chs) {
     return chs.every(function (c) { var u = userSpecies(id); return u ? u.ch.indexOf(c) >= 0 : !!baseSpecies(id, c); });
   }
-  function addStepWin(ch, fixedFrom, done) {
+  function addStepWin(ch, fixedFrom, done, fromState) {
     if (!Annot.canEdit) return;
     var G = NetGraph.model(ch, doc(), META.ch[ch]), listId = "states" + (++S.top), opts = {};
     G.nodes.forEach(function (n) { opts[n.key] = 1; });
     Object.keys(META.ch[ch].species).concat(Object.keys(doc().species)).forEach(function (s) { opts[s] = 1; });
     var dl = h("datalist", { id: listId }, Object.keys(opts).sort(nat).map(function (k) { return h("option", { value: k }); }));
     var body = makeWin("Add a step", "between two states, for the urea and/or the thiourea", 600);
-    function side(label, fixed) {
+    function side(label, fixed, prefill) {
       var fs = h("fieldset", { class: "side" }, [h("legend", null, [label])]);
       if (fixed) { fs.appendChild(h("div", null, [h("b", null, [fixed]), h("span", { class: "note" }, ["  (where the new mechanism has got to)"])])); return { el: fs, get: function () { return { state: fixed }; } }; }
       var name = "r" + (++S.top), r1 = h("input", { type: "radio", name: name, checked: true }), r2 = h("input", { type: "radio", name: name });
       var inp = h("input", { type: "text", list: listId, placeholder: "I5a, I2 + I132a, P1a …", "aria-label": label + " state" });
+      if (prefill) inp.value = prefill;
       var nm = h("input", { type: "text", maxlength: "120", placeholder: "name", "aria-label": "name of the new species" });
       var sm = h("input", { type: "text", maxlength: "300", placeholder: "SMILES (optional)", "aria-label": "SMILES of the new species", class: "mono" });
       fs.appendChild(h("label", { class: "chk" }, [r1, " a species or state already in the network: ", inp]));
@@ -863,7 +998,7 @@
       sm.addEventListener("focus", function () { r2.checked = true; });
       return { el: fs, get: function () { return r2.checked ? { name: nm.value.trim(), smiles: sm.value.trim() } : { state: normState(inp.value) }; } };
     }
-    var a = side("From", fixedFrom), b = side("To"), name = h("input", { type: "text", maxlength: "120", placeholder: "e.g. 1,2-hydride shift C4 → C5" });
+    var a = side("From", fixedFrom, fromState), b = side("To"), name = h("input", { type: "text", maxlength: "120", placeholder: "e.g. 1,2-hydride shift C4 → C5" });
     var desc = h("textarea", { rows: "3", maxlength: "1000", placeholder: "what happens: bonds made and broken, where the proton goes …" });
     var cO = h("input", { type: "checkbox", checked: ch === "O" || S.both }), cS = h("input", { type: "checkbox", checked: ch === "S" || S.both });
     var err = h("p", { class: "err", role: "alert" });
@@ -1119,9 +1254,11 @@
       " mechanisms (an A version ending at P1a = 1-R-3-Me and a B version ending at P1b = 1-Me-3-R), " + ns + " species and " + nt +
       " steps for each of the urea and the thiourea. Species and step IDs are the same as in the mechflow projects <code>Ch_O</code> and <code>Ch_S</code>.</p>" +
       "<h2>How to read the drawings</h2><p>Each step with a transition state has its own colour: the arrow between two structures and the curly arrows on the structure before it. " +
-      "Above each coloured arrow is a 3D picture of a TS guess. Proton transfers are grey steps through the acid catalyst (HA drawn as A–H, A⁻ as A⁻), each with its own TS. Proton transfers and steps that release or take up water are drawn as equilibria (⇌). The green H is the aldehyde H (H4).</p>" +
-      "<h2>TS guesses and paths</h2><p>For every step, the two sides were joined by an IDPP interpolation (ASE NEB module, 9 images). One end is the structure mechflow starts the SCAN from; " +
+      "Above each coloured arrow is a 3D picture of a TS guess. Proton transfers are grey steps through the acid catalyst (HA drawn as A–H, A⁻ as A⁻), each with its own TS. Proton transfers and steps that release or take up water are drawn as equilibria (⇌). The green H is the aldehyde H (H4). " +
+      "In a step's window the TS above the arrow is drawn in 2D, with the bonds that form or break dashed; <i>2D | 3D</i> swaps it for the 3D TS guess.</p>" +
+      "<h2>TS guesses and paths</h2><p>For every step, the two sides were joined by an IDPP interpolation (ASE NEB module). One end is the structure mechflow starts the SCAN from; " +
       "the other is the same atoms with the step's bonds changed, relaxed with a force field. These are pictures and starting points, not DFT results. " +
+      "The player runs from the step's left side to its right side; a step that a mechanism uses backwards is played backwards. " +
       "The xyz files are in <code>xyz/ts_guesses/</code> and open with <code>ase gui</code>.</p>" +
       "<h2>Statuses and edits</h2><p>Collaborators on the GitHub repository sign in with GitHub (top right) and mark mechanisms and steps as " +
       "possible or not possible, separately for the urea and the thiourea, with a short note if they like. Each item has one status: the last change " +
@@ -1129,11 +1266,12 @@
       "marked possible is possible; a mechanism marked possible that uses a step marked not possible is shown as a conflict. The badges say where a " +
       "status comes from (its own mark, or which steps). Collaborators can also take mechanisms and steps out of the network, add steps and species, " +
       "and build new mechanisms from the steps. Everyone sees all of it: as badges in the lists, in the step and mechanism views, and in the " +
-      "Annotations tab, which can download it all as <code>annotations.json</code>.</p><p>On the Network tab, <i>everything</i> shows every step " +
-      "that has not been removed, <i>hide what is not possible</i> leaves out the steps marked not possible and the mechanisms that are not " +
-      "possible, and <i>only what is possible</i> keeps only the steps marked possible and the steps of mechanisms that are possible. Both " +
-      "filters then leave out everything that no longer lies on a route from the reactants to a product; an arrow stays only while a mechanism " +
-      "that uses it is still allowed (or a collaborator added it as a step). Added steps and species are drawn dashed in teal. " +
+      "Annotations tab, which can download it all as <code>annotations.json</code>. Right-click a step arrow, a mechanism or a network box for a " +
+      "short menu.</p><p>The Network tab shows the network of the urea or the thiourea, with that chalcogen's statuses. <i>everything</i> shows " +
+      "every step that has not been removed; <i>hide what is not possible</i> leaves out the steps marked not possible and the mechanisms that are " +
+      "not possible, and then everything that no longer lies on a route from the reactants to a product; <i>grey out what is not possible</i> " +
+      "shows everything but greys what <i>hide</i> would leave out. An arrow stays only while a mechanism that uses it is still allowed (or a " +
+      "collaborator added it as a step). Added steps and species are drawn dashed in teal. " +
       "In the search box, <code>is:possible</code>, <code>is:notpossible</code>, <code>is:conflict</code>, <code>is:unmarked</code>, " +
       "<code>is:removed</code> and <code>is:added</code> filter the lists.</p>" +
       "<h2>After the DFT calculations</h2><p>Rebuild the site (<code>make_website.py</code>) and every step with a finished OptTS or IRC gets a “3D: DFT” tab.</p>";
@@ -1206,7 +1344,7 @@
     if (q[0]) { try { H[q[0]] = decodeURIComponent(q[1] || ""); } catch (e) { H[q[0]] = ""; } }
   });
   if (H.ch === "S" || H.ch === "O") { S.ch = H.ch; $$("#chsel button").forEach(function (b) { b.classList.toggle("on", b.dataset.ch === S.ch); }); famList(); tables(); about(); }
-  if (["all", "hide", "only"].indexOf(H.filter) >= 0) { S.netMode = H.filter; $("#netmode").value = S.netMode; }
+  if (MODES.indexOf(H.filter) >= 0) { S.netMode = H.filter; $("#netmode").value = S.netMode; }
   showMech(baseMech(H.m) ? H.m : firstMech());
   if (H.tab) setTab(H.tab);
   if (H.step) openStep(H.step, H.dir || "fwd");

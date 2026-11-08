@@ -48,14 +48,14 @@
         <button data-nz="fit">Fit</button><button data-nz="+">+</button><button data-nz="-">&minus;</button>
         <label class="netsel">Show <select id="netmode" aria-label="Which steps to show">
           <option value="all">everything</option>
+          <option value="grey">grey out what is not possible</option>
           <option value="hide">hide what is not possible</option>
-          <option value="only">only what is possible</option>
         </select></label>
         <label class="chk"><input type="checkbox" id="netremoved"> show removed (greyed)</label>
         <span class="editonly"><button id="addstep" title="Add a step between two states">+ step</button><button id="addmech" title="Build a new mechanism from the reactants to a product">+ mechanism</button></span>
         <span id="netbusy" class="busy" hidden>laying out&hellip;</span>
       </div>
-      <div class="netsub small"><span>Drag to move, scroll to zoom. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out).</span>
+      <div class="netsub small"><span>Drag to move, scroll to zoom, right-click for a menu. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out) or steps that mechanisms use both ways round.</span>
         <span id="netinfo"></span></div>
       <div id="netview" class="canvas pan"></div>
       <div id="netlegend" class="legend"></div>
@@ -72,8 +72,10 @@
 <script src="data/meta.js"></script>
 <script src="data/xyz_O.js"></script>
 <script src="data/xyz_S.js"></script>
-<script src="data/network.js"></script>
-<script src="data/network_graph.js"></script>
+<script src="data/network_O.js"></script>
+<script src="data/network_S.js"></script>
+<script src="data/network_graph_O.js"></script>
+<script src="data/network_graph_S.js"></script>
 <script src="assets/config.js"></script>
 <script src="assets/annot.js"></script>
 <script src="assets/netgraph.js"></script>

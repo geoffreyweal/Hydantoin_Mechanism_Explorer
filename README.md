@@ -22,21 +22,27 @@ the folder. The online version is at <https://geoffreyweal.github.io/Hydantoin_M
 - **Click a structure** to turn it in 3D (3Dmol.js). You can label the key atoms (C5, C4, O5 …), change the
   style, or download the xyz file.
 - **Click a step arrow** to open the step in its own window:
-  - the diagram: intermediate n with its curly arrows, the TS guess above the arrow, and intermediate n+1;
-  - a 2D sketch of the TS, with the bonds that form or break dashed;
-  - **3D: TS guess and path**: the 9 images of an IDPP interpolation (ASE NEB module) between the two sides of
-    the step, with play and slider controls. The bonds that change are dashed.
-- **Network.** Every mechanism in one network, ending at both products. Drag to move, scroll to zoom, and click
-  a box or an arrow. Grey arrows are proton transfers through the acid catalyst (HA / A⁻); arrows with two heads
-  are equilibria (proton transfers, water in or out). The **Show** menu filters the network by the statuses (see
-  below).
+  - the diagram: intermediate n with its curly arrows, the TS above the arrow, and intermediate n+1. The TS is
+    drawn in 2D, with the bonds that form or break dashed; **2D | 3D** swaps it for the 3D TS guess (the page
+    remembers your choice);
+  - **3D: TS guess and path**: the images of an IDPP interpolation (ASE NEB module) between the two sides of
+    the step, with play and slider controls. The bonds that change are dashed. A step that the mechanism uses
+    backwards is played backwards, from its right side to its left side.
+- **Network.** One network for the urea and one for the thiourea: the **Urea (O) / Thiourea (S)** switch at the
+  top picks which, with that chalcogen's structures and statuses. Each has every mechanism, ending at both
+  products. Drag to move, scroll to zoom, and click a box or an arrow. Grey arrows are proton transfers through
+  the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out) or steps
+  that mechanisms use both ways round. The **Show** menu filters the network by the statuses (see below).
+- **Right-click** a step arrow (in the network or in a mechanism), a mechanism (in the list or above its drawing)
+  or a box of the network for a short menu: open it and, for collaborators, mark it, clear the mark, remove it
+  from the network or put it back, or add a step from that box. Escape or a click elsewhere closes the menu.
 - **Species / Steps.** Searchable lists; the Steps list shows each step's status. The search box also finds
   mechanisms (`M17`), species (`I52`) and steps (`S35a`). `is:possible`, `is:notpossible`, `is:conflict`,
   `is:unmarked`, `is:removed` and `is:added` filter the lists by the statuses and edits.
 - **Annotations.** Every status, removal and addition, with who made it and when, and a button to download them
   all as `annotations.json`.
 - **Links.** The address can open a view directly, for example `index.html#ch=S&m=M3A&step=S7b`,
-  `#ch=O&mol=I7a`, or `#tab=net&filter=hide` (the network without what is not possible).
+  `#ch=O&mol=I7a`, `#tab=net&filter=grey` or `#tab=net&filter=hide`.
 
 ## Statuses and edits (collaborators)
 
@@ -68,7 +74,8 @@ A mechanism or a step can be marked **✓ possible** or **✗ not possible**, se
 thiourea:
 
 - a step: in its window (click its arrow);
-- a mechanism: in the bar above its drawing.
+- a mechanism: in the bar above its drawing;
+- either: with a right-click on it (see above).
 
 Add a short note if you like (why, or what would decide it). Tick **urea and thiourea** to mark both at once;
 **clear** takes the mark away. Each item has one status, and the last change wins. The page shows who set it and
@@ -90,14 +97,15 @@ On the Network tab, **Show** offers:
 
 - **everything**: every step, less what has been removed (see below) and whatever a removal cuts off from every
   route to a product;
+- **grey out what is not possible**: everything, with what *hide* would leave out greyed;
 - **hide what is not possible**: leaves out the steps marked not possible and the mechanisms that are not
-  possible (marked so, or because of one of their steps);
-- **only what is possible**: keeps only the steps marked possible and the steps of mechanisms that are possible.
+  possible (marked so, or because of one of their steps), then everything that no longer lies on a route from
+  the reactants (R1 + R2) to a product.
 
-Both filters then leave out everything that no longer lies on a route from the reactants (R1 + R2) to a product.
+The filter uses the statuses of the chalcogen shown: a mark on the urea does not change the thiourea's network.
 An arrow is kept only while at least one mechanism that uses it is still allowed (a step added by a collaborator
-needs no mechanism). The filtered network is laid out again in your browser with Graphviz (Viz.js, included in
-`assets/`).
+needs no mechanism); a step that mechanisms use both ways round can be followed either way. A filtered or edited
+network is laid out again in your browser with Graphviz (Viz.js, included in `assets/`).
 
 ### Removing and adding
 
