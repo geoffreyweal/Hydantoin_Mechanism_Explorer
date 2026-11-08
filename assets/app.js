@@ -838,7 +838,28 @@
       "<div><i style='background:#9aa3ad;opacity:0.5'></i>greyed: removed, or not possible (with “grey out”)</div>";
     $("#netlegend").innerHTML = lg;
   }
+  function viewAnchor() {          // the box nearest the middle of the view, so a redraw can keep it where it is
+    if (!net.el || !net.vb || net.needFit) return null;
+    var cx = net.vb[0] + net.vb[2] / 2, cy = net.vb[1] + net.vb[3] / 2, best = null;
+    $$("g.node", net.el).forEach(function (g) {
+      var b = rootBox(g);
+      if (!b || !(b.width > 0)) return;
+      var x = b.x + b.width / 2, y = b.y + b.height / 2, d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (!best || d < best.d) best = { d: d, id: g.id, dx: x - cx, dy: y - cy };
+    });
+    return { id: best ? best.id : null, dx: best ? best.dx : 0, dy: best ? best.dy : 0, vb: net.vb.slice() };
+  }
+  function restoreView(a) {        // the same zoom, with the anchor box back where it was on the screen
+    if (!a || !net.el) return false;
+    var box = $("#netview").getBoundingClientRect();
+    if (box.width < 2 || box.height < 2) return false;
+    var g = a.id ? $$("g.node", net.el).filter(function (x) { return x.id === a.id; })[0] : null, w = a.vb[2], h = a.vb[3];
+    if (g) { var b = rootBox(g); net.vb = [b.x + b.width / 2 - a.dx - w / 2, b.y + b.height / 2 - a.dy - h / 2, w, h]; }
+    else net.vb = a.vb.slice();
+    net.needFit = false; setVB(); return true;
+  }
   function setNetSVG(svg) {
+    var keep = viewAnchor();       // keep the view across redraws; only the first display and Fit fit the network
     var box = $("#netview");
     box.textContent = "";
     box.appendChild(svg);
@@ -846,11 +867,13 @@
     net.el = svg;
     var b = svg.viewBox.baseVal;
     net.full = { x: b.x, y: b.y, width: b.width, height: b.height };
-    netFit();
+    if (!keep) netFit();
+    else if (!restoreView(keep)) { net.pending = keep; net.needFit = true; }     // hidden tab: restore when shown
   }
   function setVB() { net.el.setAttribute("viewBox", net.vb.join(" ")); }
   function netFit() {
     if (!net.el) return;
+    if (net.pending) { var p = net.pending; net.pending = null; if (restoreView(p)) return; }
     var box = $("#netview").getBoundingClientRect(), f = net.full, ar = box.width / Math.max(box.height, 1);
     if (box.width < 2 || box.height < 2) { net.needFit = true; return; }   // the tab is hidden: fit when it is shown
     net.needFit = false;
@@ -959,7 +982,7 @@
   $$(".zoombar button[data-nz]").forEach(function (b) {
     b.onclick = function () {
       if (!net.el) return;
-      if (b.dataset.nz === "fit") { netFit(); return; }
+      if (b.dataset.nz === "fit") { net.pending = null; netFit(); return; }
       var f = b.dataset.nz === "+" ? 1 / 1.3 : 1.3, cx = net.vb[0] + net.vb[2] / 2, cy = net.vb[1] + net.vb[3] / 2;
       net.vb[2] *= f; net.vb[3] *= f; net.vb[0] = cx - net.vb[2] / 2; net.vb[1] = cy - net.vb[3] / 2; setVB();
     };
