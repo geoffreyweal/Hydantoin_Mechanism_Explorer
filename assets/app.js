@@ -1,14 +1,16 @@
 /* Hydantoin Mechanism Explorer: mechanisms, network, species and steps of the two mechflow projects (Ch_O, Ch_S),
-   with the collaborators' votes and edits (annot.js) and the filtered or edited network (netgraph.js).
-   Text written by collaborators (names, notes, SMILES, logins) is only ever put on the page as text (textContent, or
-   esc() in HTML strings), never as HTML. */
+   with the collaborators' statuses and edits (annot.js) and the filtered or edited network (netgraph.js).
+   A collaborator marks a mechanism or a step possible or not possible (one status per item, per chalcogen). A step
+   marked not possible makes every mechanism that uses it not possible, unless the mechanism has its own mark: marked
+   possible, it is then shown as a conflict. Text written by collaborators (names, notes, SMILES, logins) is only ever
+   put on the page as text (textContent, or esc() in HTML strings), never as HTML. */
 (function () {
   "use strict";
   var S = { ch: "O", tab: "mech", mech: null, zoom: null, top: 100, both: false, netMode: "all", netRemoved: false, builder: null };
   var $ = function (s, el) { return (el || document).querySelector(s); };
   var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
   var CHN = { O: "urea", S: "thiourea" };
-  var WORD = { none: "unmarked", yes: "possible", no: "not possible", tie: "disputed" };
+  var WORD = { none: "unmarked", yes: "possible", no: "not possible", conflict: "conflict" };
   var TABS = ["mech", "net", "species", "steps", "annot", "about"];
   var NODRAW = "No drawing for this step yet: rebuild the website (make_website.py) to draw it.";
 
@@ -88,79 +90,106 @@
     var u = userMech(id) || userStep(id) || userSpecies(id);
     return u ? u.ch.indexOf(ch) >= 0 : !!(baseStep(id, ch) || baseMech(id, ch) || baseSpecies(id, ch));
   }
-  function votable(sid, ch) {
-    if (userSpecies(sid)) return true;
-    var sp = baseSpecies(sid, ch);
-    return !!sp && (!sp.role || sp.role === "intermediate");
+  function isMech(id, ch) { var u = userMech(id); return u ? u.ch.indexOf(ch) >= 0 : !!baseMech(id, ch); }
+  function isStep(id, ch) { var u = userStep(id); return u ? u.ch.indexOf(ch) >= 0 : !!baseStep(id, ch); }
+
+  // ------------------------------------------------------------------ statuses: own marks, spread from steps to mechanisms
+  function ownStatus(id, ch) { return Annot.statusOf(key(ch, id)); }          // {s: "yes"|"no", note, by, at} or null
+  function mechSteps(mid, ch) {                     // the steps a mechanism goes through (each once)
+    var u = userMech(mid), b = u ? null : baseMech(mid, ch), out = [];
+    (u ? u.hops.map(function (x) { return x.step; }) : b ? b.steps : []).forEach(function (s) { if (s && out.indexOf(s) < 0) out.push(s); });
+    return out;
   }
-  function badge(id, ch) {
-    var k = key(ch, id), s = Annot.status(k), rm = Annot.removed(k), out = "";
-    if (s.state !== "none") {
-      var tip = WORD[s.state] + "\n" + s.votes.map(function (v) {
-        return "@" + v.login + ": " + WORD[v.v] + (v.note ? " (" + v.note + ")" : "");
-      }).join("\n");
-      out += "<span class='bdg st-" + s.state + "' title='" + esc(tip) + "'>" + (s.yes ? "&#10003;" + s.yes : "") + (s.yes && s.no ? " " : "") +
-        (s.no ? "&#10007;" + s.no : "") + "</span>";
-    }
+  /* {state: "yes"|"no"|"conflict"|"none", own: the item's own mark or null, from: "own"|"steps"|"", steps: [...]}
+     steps: for "no" from steps and for "conflict", the steps marked not possible */
+  function mechStatus(mid, ch) {
+    var o = ownStatus(mid, ch), steps = mechSteps(mid, ch);
+    var no = steps.filter(function (s) { var x = ownStatus(s, ch); return !!x && x.s === "no"; });
+    if (o && o.s === "no") return { state: "no", own: o, from: "own", steps: [] };
+    if (o && o.s === "yes") return no.length ? { state: "conflict", own: o, from: "own", steps: no } : { state: "yes", own: o, from: "own", steps: [] };
+    if (no.length) return { state: "no", own: null, from: "steps", steps: no };
+    if (steps.length && steps.every(function (s) { var x = ownStatus(s, ch); return !!x && x.s === "yes"; })) return { state: "yes", own: null, from: "steps", steps: steps };
+    return { state: "none", own: null, from: "", steps: [] };
+  }
+  function stepStatus(sid, ch) { var o = ownStatus(sid, ch); return { state: o ? o.s : "none", own: o, from: o ? "own" : "", steps: [] }; }
+  function shownStatus(id, ch) { return isMech(id, ch) ? mechStatus(id, ch) : isStep(id, ch) ? stepStatus(id, ch) : { state: "none", own: null, from: "", steps: [] }; }
+  function few(a) { return a.slice(0, 3).join(", ") + (a.length > 3 ? " +" + (a.length - 3) : ""); }
+  function statusText(st) {                          // "possible", "not possible: S7b", "conflict: S7b"
+    if (st.state === "no") return st.from === "steps" ? "not possible: " + few(st.steps) : "not possible";
+    if (st.state === "conflict") return "conflict: " + few(st.steps);
+    return WORD[st.state];
+  }
+  function who(o) { return "@" + o.by + (o.at ? " on " + day(o.at) : "") + (o.note ? ": " + o.note : ""); }
+  function statusSource(st, ch) {                    // where the status comes from, in words
+    if (st.state === "none") return "";
+    if (st.from === "own" && st.state !== "conflict") return "Marked " + WORD[st.own.s] + " by " + who(st.own) + ".";
+    if (st.state === "conflict") return "Marked possible by " + who(st.own) + ", but " + st.steps.join(", ") + (st.steps.length > 1 ? " are" : " is") + " marked not possible.";
+    if (st.state === "no") return "Not possible because " + st.steps.map(function (s) { var x = ownStatus(s, ch); return s + " is marked not possible (" + who(x) + ")"; }).join("; ") + ".";
+    return "Possible because every one of its steps is marked possible.";
+  }
+  function badge(id, ch) {                           // the shown status and "removed", for the lists (HTML, escaped)
+    var st = shownStatus(id, ch), rm = Annot.removed(key(ch, id)), out = "";
+    if (st.state !== "none") out += "<span class='bdg st-" + st.state + "' title='" + esc(statusSource(st, ch)) + "'>" + esc(statusText(st)) + "</span>";
     if (rm) out += "<span class='bdg rmv' title='" + esc("removed from the network by @" + rm.by + (rm.note ? ": " + rm.note : "")) + "'>removed</span>";
     return out;
   }
-  function blockedSteps(steps, ch) {
-    return steps.filter(function (s) { return s && (Annot.status(key(ch, s)).state === "no" || Annot.removed(key(ch, s))); });
+  function mechsUsing(sid, ch) {                     // the mechanisms (built-in and added) that use a step
+    var st = baseStep(sid, ch), out = (st ? st.used_by : []).filter(function (m) { return baseMech(m, ch); });
+    Object.keys(doc().mechanisms).forEach(function (m) { if (isMech(m, ch) && mechSteps(m, ch).indexOf(sid) >= 0 && out.indexOf(m) < 0) out.push(m); });
+    return out;
   }
 
-  // vote and remove buttons with tallies; one widget per item and chalcogen, refreshed when the annotations change
-  function voteWidget(id, ch, kind, opts) {
+  // the status buttons of a step or a mechanism (and "remove from network"), refreshed when the annotations change
+  function statusWidget(id, ch, kind) {
     var el = h("div", { class: "vote", "data-id": id, "data-ch": ch, "data-kind": kind }, [
-      h("span", { class: "chip" }), h("span", { class: "tally" }),
+      h("span", { class: "chip" }),
       h("span", { class: "vctl" }, [
         h("button", { class: "vb yes", "data-v": "yes", title: "mark as possible" }, ["✓ possible"]),
         h("button", { class: "vb no", "data-v": "no", title: "mark as not possible" }, ["✗ not possible"]),
-        h("button", { class: "vb clr", "data-v": "clear", title: "take back your vote" }, ["clear"]),
+        h("button", { class: "vb clr", "data-v": "clear", title: "take the mark away" }, ["clear"]),
         h("input", { class: "vnote", type: "text", maxlength: "300", placeholder: "short note (optional)", "aria-label": "note" }),
         h("label", { class: "vboth", title: "apply to the urea and the thiourea" }, [h("input", { type: "checkbox" }), " urea and thiourea"]),
-        opts && opts.remove ? h("button", { class: "vrm", title: "take it out of the network (or put it back)" }, ["remove from network"]) : null
+        h("button", { class: "vrm", title: "take it out of the network (or put it back)" }, ["remove from network"])
       ]),
       h("span", { class: "vhint" }),
-      h("div", { class: "vrmd" }),
-      h("details", { class: "vlist" }, [h("summary"), h("ul")])
+      h("div", { class: "vsrc" }),
+      h("div", { class: "vrmd" })
     ]);
     $(".vnote", el).addEventListener("input", function () { el._typed = true; });
-    renderVote(el);
+    renderStatus(el);
     return el;
   }
-  function renderVote(el) {
-    var id = el.getAttribute("data-id"), ch = el.getAttribute("data-ch"), k = key(ch, id), st = Annot.status(k), rm = Annot.removed(k);
+  function renderStatus(el) {
+    var id = el.getAttribute("data-id"), ch = el.getAttribute("data-ch"), kind = el.getAttribute("data-kind"), k = key(ch, id);
+    var st = kind === "mech" ? mechStatus(id, ch) : stepStatus(id, ch), mine = ownStatus(id, ch), rm = Annot.removed(k);
     var edit = Annot.canEdit && exists(id, ch), chip = $(".chip", el);
     chip.className = "chip st-" + st.state;
-    chip.textContent = WORD[st.state];
-    $(".tally", el).textContent = "✓ " + st.yes + " · ✗ " + st.no;
-    $(".tally", el).title = st.votes.map(function (v) { return "@" + v.login + ": " + WORD[v.v] + (v.note ? " (" + v.note + ")" : ""); }).join("\n");
+    chip.textContent = statusText(st);
     $(".vctl", el).hidden = !edit;
     $$(".vb", el).forEach(function (b) {
-      var on = !!st.mine && st.mine.v === b.getAttribute("data-v");
+      var on = !!mine && mine.s === b.getAttribute("data-v");
       b.classList.toggle("on", on);
       b.setAttribute("aria-pressed", on ? "true" : "false");
     });
-    $(".vb.clr", el).disabled = !st.mine;
-    var vn = $(".vnote", el);              // my note, until I start typing a new one
-    if (st.mine && !el._typed && document.activeElement !== vn) vn.value = st.mine.note || "";
+    $(".vb.clr", el).disabled = !mine;
+    var vn = $(".vnote", el);              // the note of the mark, until someone starts typing a new one
+    if (!el._typed && document.activeElement !== vn) vn.value = mine ? mine.note || "" : "";
     $(".vboth input", el).checked = S.both;
     var rb = $(".vrm", el);
-    if (rb) { rb.textContent = rm ? "restore to network" : "remove from network"; rb.classList.toggle("on", !!rm); }
-    $(".vhint", el).textContent = edit ? "" : !Annot.loaded ? (Annot.error ? "annotations unavailable" : "loading votes…") :
-      !Annot.user ? "Sign in as a collaborator to vote." : !Annot.hasPush ? "@" + Annot.user.login + " has no push access, so the votes are read only" : "";
+    rb.textContent = rm ? "restore to network" : "remove from network"; rb.classList.toggle("on", !!rm);
+    $(".vhint", el).textContent = edit ? "" : !Annot.loaded ? (Annot.error ? "annotations unavailable" : "loading…") :
+      !Annot.user ? (Annot.signInReady ? "Sign in (top right) to mark it." : "") :
+      !Annot.hasPush ? "@" + Annot.user.login + " has no push access, so this is read only" : "";
+    var src = statusSource(st, ch);
+    if (kind === "step" && mine && mine.s === "no") {
+      var ms = mechsUsing(id, ch);
+      if (ms.length) src += " This makes " + few(ms) + (ms.length > 1 ? " (" + ms.length + " mechanisms)" : "") + " not possible unless marked otherwise.";
+    }
+    $(".vsrc", el).textContent = src;
+    $(".vsrc", el).hidden = !src;
     var rmd = $(".vrmd", el);
     rmd.hidden = !rm;
     rmd.textContent = rm ? "Removed from the network (" + CHN[ch] + ") by @" + rm.by + (rm.at ? " on " + day(rm.at) : "") + (rm.note ? ": " + rm.note : "") : "";
-    var det = $(".vlist", el), ul = $("ul", det);
-    det.hidden = !st.votes.length;
-    $("summary", det).textContent = st.votes.length + (st.votes.length === 1 ? " vote" : " votes") + " (" + CHN[ch] + ")";
-    ul.textContent = "";
-    st.votes.forEach(function (v) {
-      ul.appendChild(h("li", null, [h("b", null, ["@" + v.login]), " ", h("span", { class: v.v === "yes" ? "ok" : "bad" }, [v.v === "yes" ? "✓ possible" : "✗ not possible"]),
-        v.note ? " – " + v.note : "", v.at ? h("span", { class: "note" }, ["  " + day(v.at)]) : null]));
-    });
   }
   document.addEventListener("click", function (e) {
     var b = e.target.closest(".vote button");
@@ -168,12 +197,13 @@
     var el = b.closest(".vote"), id = el.getAttribute("data-id"), ch = el.getAttribute("data-ch");
     var keys = ($(".vboth input", el).checked ? ["O", "S"] : [ch]).filter(function (c) { return exists(id, c); }).map(function (c) { return key(c, id); });
     var note = $(".vnote", el).value;
+    el._typed = false;
     if (b.classList.contains("vrm")) {
       if (Annot.removed(key(ch, id))) Annot.restore(keys.filter(function (k) { return Annot.removed(k); }));
       else Annot.remove(keys, note);
     } else if (b.getAttribute("data-v") === "clear") {
-      Annot.vote(keys.filter(function (k) { return Annot.status(k).mine; }), null, "");
-    } else Annot.vote(keys, b.getAttribute("data-v"), note);
+      Annot.setStatus(keys.filter(function (k) { return Annot.statusOf(k); }), null, "");
+    } else Annot.setStatus(keys, b.getAttribute("data-v"), note);
   });
   document.addEventListener("change", function (e) {
     if (!e.target.matches(".vboth input")) return;
@@ -182,7 +212,7 @@
     $$(".vboth input").forEach(function (x) { x.checked = S.both; });
   });
 
-  // ------------------------------------------------------------------ signing in
+  // ------------------------------------------------------------------ signing in (GitHub App, web flow: see annot.js)
   function renderAuth() {
     var box = $("#auth"), u = Annot.user, st = Annot.saveState;
     box.textContent = "";
@@ -190,8 +220,9 @@
     var info = Annot.loading && !Annot.loaded ? "loading annotations…" : !Annot.loaded ? "annotations unavailable" : "";
     if (info) box.appendChild(h("span", { class: "annstate" + (Annot.loaded ? "" : " off"), title: Annot.error || null }, [info]));
     if (u) {
-      box.appendChild(h("span", { class: "who", title: u.name || u.login }, [h("i", { class: "ini" }, [u.login.charAt(0).toUpperCase()]), "@" + u.login]));
-      box.appendChild(h("span", { class: "role " + (Annot.hasPush ? "ok" : "ro"), title: Annot.hasPush ? "push access: can vote and edit" : "no push access to " +
+      var until = Annot.expires ? "signed in until " + new Date(Annot.expires).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+      box.appendChild(h("span", { class: "who", title: (u.name || u.login) + (until ? " (" + until + ")" : "") }, [h("i", { class: "ini" }, [u.login.charAt(0).toUpperCase()]), "@" + u.login]));
+      box.appendChild(h("span", { class: "role " + (Annot.hasPush ? "ok" : "ro"), title: Annot.hasPush ? "push access: can mark and edit" : "no push access to " +
         Annot.cfg.owner + "/" + Annot.cfg.repo }, [Annot.hasPush ? "collaborator" : "read only"]));
       if (Annot.hasPush && st.state !== "idle") {
         var txt = st.state === "error" ? "error: " + st.msg : st.msg;
@@ -199,60 +230,23 @@
         if (st.state === "error") box.appendChild(h("button", { class: "btn", onclick: function () { Annot.saveNow(); } }, ["retry"]));
       }
       box.appendChild(h("button", { class: "btn", onclick: signOut }, ["Sign out"]));
-    } else {
-      if (Annot.authError) box.appendChild(h("span", { class: "autherr", title: Annot.authError }, ["not signed in: " + Annot.authError]));
-      box.appendChild(h("button", { class: "btn primary", onclick: signInDialog, disabled: !Annot.signInAllowed,
-                                    title: Annot.signInAllowed ? null : "Open the site in its own tab to sign in" }, ["Sign in with GitHub"]));
+      return;
     }
+    if (Annot.authError) box.appendChild(h("span", { class: "autherr", role: "alert", title: Annot.authError }, [Annot.authError]));
+    if (!Annot.signInReady) { box.appendChild(h("span", { class: "signnote", title: Annot.signInNote }, [Annot.signInNote])); return; }
+    if (Annot.pending) box.appendChild(h("span", { class: "save s-error" }, [Annot.pending + " unsaved change" + (Annot.pending > 1 ? "s" : "") + ": sign in to save"]));
+    var rem = h("input", { type: "checkbox", id: "remember" });
+    box.appendChild(h("label", { class: "remember", title: "keep the sign-in in this browser after the tab is closed (about 8 hours)" }, [rem, " remember on this computer"]));
+    box.appendChild(h("button", { class: "btn primary", id: "signin", onclick: function (e) {
+      e.target.disabled = true;
+      Annot.signIn(rem.checked).then(null, function (x) { e.target.disabled = false; toast("Could not sign in: " + x.message); });
+    } }, ["Sign in with GitHub"]));
   }
   function signOut() {
     if (Annot.pending && !window.confirm(Annot.pending + " change(s) are not saved yet. Sign out anyway?")) return;
     Annot.signOut();
   }
-  function closeModal() { var m = $("#modal"); m.hidden = true; m.textContent = ""; }
-  function link(url, label) { return h("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, [label]); }
-  function signInDialog() {
-    var m = $("#modal"), cfg = Annot.cfg;
-    m.textContent = "";
-    m.hidden = false;
-    var inp = h("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "ghp_… or github_pat_…", "aria-label": "token" });
-    var rem = h("input", { type: "checkbox", disabled: !Annot.rememberAllowed });
-    var err = h("p", { class: "err", role: "alert" }), ok = h("button", { class: "btn primary", type: "submit" }, ["Sign in"]);
-    var form = h("form", { class: "dlg", role: "dialog", "aria-modal": "true", "aria-label": "Sign in with GitHub" }, [
-      h("h2", null, ["Sign in with GitHub"]),
-      h("p", null, ["Collaborators on ", h("b", null, [cfg.owner + "/" + cfg.repo]), " can mark steps, mechanisms and species as possible or not ",
-        "possible, and add or remove steps and mechanisms. Everyone else can still see all of it."]),
-      h("p", null, ["GitHub's sign-in needs a server, so this page asks for a personal access token instead. The token stays in this browser ",
-        "(this tab only, unless you tick “remember”) and is sent only to api.github.com."]),
-      h("ul", null, [
-        h("li", null, [h("b", null, ["Repository owner: "]), "a fine-grained token (", link("https://github.com/settings/personal-access-tokens/new", "make one"),
-          "). Resource owner: yourself; Repository access: only select repositories → ", h("code", null, [cfg.repo]),
-          "; Repository permissions → Contents: Read and write."]),
-        h("li", null, [h("b", null, ["Collaborators: "]), "a classic token with the ", h("code", null, ["public_repo"]), " scope (",
-          link("https://github.com/settings/tokens/new?scopes=public_repo&description=Hydantoin%20Mechanism%20Explorer", "make one"),
-          "), because a fine-grained token may not reach a repository owned by another user."]),
-        h("li", null, ["Give it an expiry date. You can revoke it on GitHub at any time."])
-      ]),
-      h("label", { class: "field" }, ["Token ", inp]),
-      h("label", { class: "chk" }, [rem, " remember on this computer" + (Annot.rememberAllowed ? "" : " (not offered when the page is opened from a file)")]),
-      err,
-      h("div", { class: "row" }, [ok, h("button", { class: "btn", type: "button", onclick: closeModal }, ["Cancel"])])
-    ]);
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      ok.disabled = true;
-      err.textContent = "checking with GitHub…";
-      Annot.signIn(inp.value, rem.checked).then(function (user) {
-        closeModal();
-        toast("Signed in as @" + user.login + (Annot.hasPush ? " (collaborator)" : " (read only: no push access)"));
-      }, function (x) { ok.disabled = false; err.textContent = x.message; });
-    });
-    m.appendChild(form);
-    inp.focus();
-  }
-  $("#modal").addEventListener("click", function (e) { if (e.target.id === "modal") closeModal(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !$("#modal").hidden) closeModal(); });
-  window.addEventListener("beforeunload", function (e) { if (Annot.pending) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", function (e) { if (Annot.pending && !Annot.leaving) { e.preventDefault(); e.returnValue = ""; } });
 
   // ------------------------------------------------------------------ xyz helpers
   function frames(txt) {
@@ -338,7 +332,7 @@
     var body = makeWin(title, names + "  (" + CHN[S.ch] + ")", 640);
     body.innerHTML = "<div class='v3d'></div><div class='tools'><button data-a='labels'>Key atoms</button>" +
       "<button data-a='ball'>Ball &amp; stick</button><button data-a='line'>Lines</button><button data-a='spacefill'>Space-filling</button>" +
-      "<span class='note'>drag to turn, scroll to zoom</span></div><div class='votes'></div><div class='info'></div>";
+      "<span class='note'>drag to turn, scroll to zoom</span></div><div class='info'></div>";
     var v = viewer3d($(".v3d", body)), dx = 0, labels = [], show = false;
     ids.forEach(function (sid) {
       var f = frames(xyzOf(sid))[0], xs = f.atoms.map(function (a) { return a.x; });
@@ -356,11 +350,6 @@
         if (show) labels.forEach(function (l) { v.addLabel(l[0], { position: { x: l[1], y: l[2], z: l[3] }, fontSize: 11, fontColor: "black", backgroundColor: "white", backgroundOpacity: 0.75, inFront: true }); });
       } else styleAll(v, a);
       v.render();
-    });
-    var vb = $(".votes", body);
-    ids.filter(function (sid) { return votable(sid, S.ch); }).forEach(function (sid) {
-      vb.appendChild(h("div", { class: "vlabel" }, [sid + " is possible?"]));
-      vb.appendChild(voteWidget(sid, S.ch, "species"));
     });
     var info = ids.map(function (sid) {
       var sp = baseSpecies(sid);
@@ -396,8 +385,6 @@
     var u = userSpecies(id);
     if (!u) return;
     var body = makeWin(id, u.name + "  (added by @" + u.by + ")", 560);
-    body.appendChild(h("div", { class: "vlabel" }, [id + " is possible?"]));
-    body.appendChild(voteWidget(id, S.ch, "species"));
     var used = usersOf(id);
     body.appendChild(h("div", { class: "info ucard" }, [
       h("p", null, [h("b", null, ["Name: "]), u.name]),
@@ -428,7 +415,7 @@
       "a typical TS value. A picture and a starting idea, not a DFT result. Open the file with <code>ase gui " + esc(sid) + "_path.xyz</code>.</div></div>" +
       (st.dft.length ? "<div class='pane' data-p='q'><div class='v3d'></div><div class='tools'><input type='range' min='0' value='0'><span class='fr'></span></div></div>" : "") +
       "<div class='pane' data-p='i'><div class='info'></div></div>";
-    body.insertBefore(voteWidget(sid, ch, "step", { remove: true }), body.firstChild);
+    body.insertBefore(statusWidget(sid, ch, "step"), body.firstChild);
     var tabs = $(".tabs", body);
     tabs.addEventListener("click", function (e) {
       var p = e.target.dataset.p; if (!p) return;
@@ -445,7 +432,7 @@
       "<p><b>SCAN in mechflow:</b> atoms " + st.scan.atoms.join(", ") + " (from " + esc(st.start) + "), " + (st.scan.mode === "stretch" ? "stretched" : "brought together") +
       " from " + st.scan.d0 + " to " + st.scan.to + " &Aring;.</p><p><b>Used by:</b> " +
       (mechs.length ? mechs.map(function (m) { return "<a data-m='" + esc(m) + "'>" + esc(m) + "</a>"; }).join(", ") : "no mechanism") + "</p>" +
-      (umechs.length ? "<p><b>Used by collaborators' mechanisms:</b> " + umechs.map(function (m) { return "<a data-m='" + esc(m) + "'>" + esc(m) + "</a>"; }).join(", ") + "</p>" : "") +
+      (umechs.length ? "<p><b>Used by mechanisms added by collaborators:</b> " + umechs.map(function (m) { return "<a data-m='" + esc(m) + "'>" + esc(m) + "</a>"; }).join(", ") + "</p>" : "") +
       "<p class='note'>DFT results appear here after the calculations, once the website is rebuilt.</p>";
     $(".pane[data-p=i] .info", body).addEventListener("click", function (e) { if (e.target.dataset.m) { setTab("mech"); showMech(e.target.dataset.m); } });
 
@@ -503,7 +490,7 @@
     var st = userStep(id);
     if (!st) return;
     var body = makeWin(id, st.name + "  (added by @" + st.by + ")", 640);
-    body.appendChild(voteWidget(id, S.ch, "step", { remove: true }));
+    body.appendChild(statusWidget(id, S.ch, "step"));
     var used = usersOf(id);
     body.appendChild(h("div", { class: "info ucard" }, [
       h("p", null, [h("b", null, ["Step: "])].concat(stateLinks(st.from), [" → "], stateLinks(st.to))),
@@ -524,13 +511,12 @@
   }
   function isMatch(is, ch, id) {
     if (!is) return true;
-    var st = Annot.status(key(ch, id)).state;
     switch (is) {
-      case "possible": case "yes": return st === "yes";
-      case "notpossible": case "impossible": case "no": return st === "no";
-      case "disputed": case "tie": return st === "tie";
-      case "unmarked": return st === "none";
-      case "marked": case "voted": return st !== "none";
+      case "possible": return shownStatus(id, ch).state === "yes";
+      case "notpossible": case "impossible": return shownStatus(id, ch).state === "no";
+      case "conflict": return shownStatus(id, ch).state === "conflict";
+      case "unmarked": return shownStatus(id, ch).state === "none";
+      case "marked": return shownStatus(id, ch).state !== "none";
       case "removed": return !!Annot.removed(key(ch, id));
       case "added": case "user": return Annot.isUser(id);
       default: return true;
@@ -561,10 +547,9 @@
         var on = x[2].indexOf(S.mech) >= 0;
         hh += "<div class='fam" + (on ? " on" : "") + "' data-first='" + esc(x[2][0]) + "'><span class='id'>" + esc(x[0]) + "</span><span class='txt'>" + esc(x[1]) +
           "</span><div class='ab'>" + x[2].map(function (mid) {
-            var suffix = mid.indexOf(x[0]) === 0 && mid.length > x[0].length ? mid.slice(x[0].length) : mid, bl = blockedSteps(mm[mid].steps, S.ch);
+            var suffix = mid.indexOf(x[0]) === 0 && mid.length > x[0].length ? mid.slice(x[0].length) : mid;
             return "<button data-m='" + esc(mid) + "' class='" + (S.mech === mid ? "on" : "") + (Annot.removed(key(S.ch, mid)) ? " rmd" : "") + "'>" +
-              esc(suffix) + " &rarr; " + esc(mm[mid].product || "") + badge(mid, S.ch) +
-              (bl.length ? "<span class='warn' title='" + esc("uses " + bl.join(", ") + " (not possible or removed)") + "'>&#9888;</span>" : "") + "</button>";
+              esc(suffix) + " &rarr; " + esc(mm[mid].product || "") + badge(mid, S.ch) + "</button>";
           }).join("") + "</div></div>";
       });
       hh += "</div>";
@@ -577,10 +562,9 @@
     if (um.length) {
       hh += "<div class='group'><h3>Added by collaborators</h3>";
       um.forEach(function (mid) {
-        var m = U[mid], bl = blockedSteps(m.hops.map(function (x) { return x.step; }), S.ch);
+        var m = U[mid];
         hh += "<div class='fam umech" + (S.mech === mid ? " on" : "") + (Annot.removed(key(S.ch, mid)) ? " rmd" : "") + "' data-m='" + esc(mid) + "'><span class='id'>" + esc(mid) +
           "</span><span class='txt'>" + esc(m.name) + "</span> " + badge(mid, S.ch) +
-          (bl.length ? "<span class='warn' title='" + esc("uses " + bl.join(", ") + " (not possible or removed)") + "'>&#9888;</span>" : "") +
           "<div class='by'>added by @" + esc(m.by) + " &middot; ends at " + esc(m.product) + "</div></div>";
       });
       hh += "</div>";
@@ -588,12 +572,12 @@
     $("#famlist").innerHTML = hh || "<div class='hint'>Nothing matches.</div>";
   }
   function firstMech() { return Object.keys(M().mechanisms).sort(nat)[0] || null; }
-  function mechVote(mid) {
-    var bar = $("#mechvote");
+  function mechBar(mid) {
+    var bar = $("#mechbar");
     bar.textContent = "";
     bar.hidden = !mid;
     if (!mid) return;
-    bar.appendChild(voteWidget(mid, S.ch, "mech", { remove: true }));
+    bar.appendChild(statusWidget(mid, S.ch, "mech"));
     var del = userMech(mid) ? deleteButton("mechanisms", mid) : null;
     if (del) bar.appendChild(del);
   }
@@ -602,7 +586,7 @@
     var mm = baseMech(mid), ch = S.ch;
     S.mech = mm ? mid : null; famList();
     $("#mechtitle").textContent = mm ? mid + ": " + chText(mm.name) + "  (" + CHN[ch] + ")" : "";
-    mechVote(mm ? mid : null);
+    mechBar(mm ? mid : null);
     if (!mm) { $("#mechview").innerHTML = "<div class='hint'>Pick a mechanism on the left.</div>"; return; }
     if (mm.drawn === false) { $("#mechview").innerHTML = "<div class='hint'>No drawing of this mechanism yet: rebuild the website (make_website.py) to draw it.</div>"; return; }
     $("#mechview").innerHTML = "<div class='hint'>loading&hellip;</div>";
@@ -627,7 +611,7 @@
     var m = userMech(mid), view = $("#mechview");
     S.umech = JSON.stringify(m);
     $("#mechtitle").textContent = mid + ": " + m.name + "  (" + CHN[S.ch] + ")";
-    mechVote(mid);
+    mechBar(mid);
     view.textContent = "";
     var page = h("div", { class: "upage" }, [
       h("p", { class: "note" }, ["Added by @" + m.by + (m.at ? " on " + day(m.at) : "") + " for the " + chList(m.ch) +
@@ -764,7 +748,9 @@
     return { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), width: Math.abs(c.x - a.x), height: Math.abs(c.y - a.y) };
   }
   function netOpts(showRemoved) {
-    return { mode: S.netMode, showRemoved: showRemoved, status: function (k) { return Annot.status(k).state; }, removed: function (k) { return !!Annot.removed(k); } };
+    var ch = S.ch;
+    return { mode: S.netMode, showRemoved: showRemoved, removed: function (id) { return !!Annot.removed(key(ch, id)); },
+             stepStatus: function (id) { return stepStatus(id, ch).state; }, mechStatus: function (id) { return mechStatus(id, ch).state; } };
   }
   function busy(on) { $("#netbusy").hidden = !on; }
   function markGrey(grey) {        // greyed (removed) boxes and arrows in the pre-rendered network
@@ -787,14 +773,14 @@
     var nu = count(vis.node, G.nBase, G.nodes.length) + count(vis.edge, G.eBase, G.edges.length);
     var ng = grey ? count(grey.node, 0, G.nodes.length) + count(grey.edge, 0, G.edges.length) : 0;
     $("#netinfo").textContent = count(vis.node, 0, G.nBase) + " of " + G.nBase + " states and " + count(vis.edge, 0, G.eBase) + " of " + G.eBase + " arrows" +
-      (nu ? ", " + nu + " added" : "") + (ng ? ", " + ng + " removed (grey)" : "") + (S.netMode !== "all" ? " · votes for the " + CHN[S.ch] + " (" + S.ch + ")" : "");
+      (nu ? ", " + nu + " added" : "") + (ng ? ", " + ng + " removed (grey)" : "") + (S.netMode !== "all" ? " · statuses for the " + CHN[S.ch] + " (" + S.ch + ")" : "");
     if (!vis.node.some(Boolean)) {   // nothing left: say why instead of an empty picture
       net.want = "empty"; net.kind = "empty"; net.src = null; net.el = null;
       busy(false);
       var box = $("#netview");
       box.textContent = "";
       box.appendChild(h("div", { class: "hint" }, [S.netMode === "only" ?
-        "No route from the reactants to a product uses only steps marked possible for the " + CHN[S.ch] + " yet." :
+        "Nothing marked possible for the " + CHN[S.ch] + " makes a route from the reactants to a product yet." :
         "No route from the reactants to a product is left with this filter."]));
       return;
     }
@@ -911,7 +897,7 @@
       h("label", { class: "field" }, ["Name ", name]), h("label", { class: "field" }, ["Description ", desc]),
       h("div", { class: "row" }, [h("span", null, ["For: "]), h("label", { class: "chk" }, [cO, " urea (O)"]), h("label", { class: "chk" }, [cS, " thiourea (S)"])]),
       err, h("div", { class: "row" }, [ok, h("button", { class: "btn", onclick: function () { closeWin(body); } }, ["Cancel"])]),
-      h("p", { class: "note" }, ["The step is drawn dashed in the network. It needs no mechanism: the filters treat it like any other step."])]));
+      h("p", { class: "note" }, ["The step is drawn dashed in the network. It needs no mechanism; it can be marked possible or not possible like any other step."])]));
   }
 
   // ------------------------------------------------------------------ building a mechanism
@@ -966,7 +952,7 @@
       if (!cur) return;
       var list = h("div", { class: "bopts" }), opts = options(G, cur);
       opts.forEach(function (o) {
-        var e = o.e, st = e.step ? Annot.status(key(ch, e.step)).state : "none";
+        var e = o.e, st = e.step ? stepStatus(e.step, ch).state : "none";
         var nm = e.step ? (userStep(e.step) ? userStep(e.step).name : chText((baseStep(e.step, ch) || {}).name || e.name)) : "proton transfer (no TS)";
         list.appendChild(h("button", { class: "bopt" + (e.base ? "" : " usr"), onclick: function () { hops.push(o.hop); draw(); highlight(); } }, [
           h("b", { style: e.base && e.step ? "color:" + e.colour : null }, [e.step ? e.step : "H⁺"]),
@@ -1024,16 +1010,16 @@
       var t = (s + " " + sp[s].name).toLowerCase();
       if ((q.text && t.indexOf(q.text) < 0) || !isMatch(q.is, S.ch, s)) return;
       rows += "<tr data-s='" + esc(s) + "'><td class='id'>" + esc(s) + "</td><td>" + esc(chText(sp[s].name)) + "</td><td>" + esc(sp[s].formula) + "</td><td>" +
-        sp[s].used_by.length + "</td><td>" + (votable(s, S.ch) ? badge(s, S.ch) : "") + "</td></tr>";
+        sp[s].used_by.length + "</td></tr>";
     });
     var US = doc().species;
     Object.keys(US).sort(nat).forEach(function (s) {
       var u = US[s];
       if (u.ch.indexOf(S.ch) < 0 || (q.text && (s + " " + u.name + " " + u.smiles + " " + u.by).toLowerCase().indexOf(q.text) < 0) || !isMatch(q.is, S.ch, s)) return;
       rows += "<tr class='usr' data-s='" + esc(s) + "'><td class='id'>" + esc(s) + "</td><td>" + esc(u.name) + " <span class='by'>added by @" + esc(u.by) +
-        "</span></td><td class='mono'>" + esc(u.smiles) + "</td><td>" + usersOf(s).length + "</td><td>" + badge(s, S.ch) + "</td></tr>";
+        "</span></td><td class='mono'>" + esc(u.smiles) + "</td><td>" + usersOf(s).length + "</td></tr>";
     });
-    $("#sptable").innerHTML = "<thead><tr><th>ID</th><th>name</th><th>formula</th><th>mechanisms</th><th>votes</th></tr></thead><tbody>" + rows + "</tbody>";
+    $("#sptable").innerHTML = "<thead><tr><th>ID</th><th>name</th><th>formula</th><th>mechanisms</th></tr></thead><tbody>" + rows + "</tbody>";
     var st = M().steps; rows = "";
     Object.keys(st).forEach(function (s) {
       var t = (s + " " + st[s].name + " " + st[s].reaction).toLowerCase();
@@ -1048,7 +1034,7 @@
       rows += "<tr class='usr' data-t='" + esc(s) + "'><td class='id'>" + esc(s) + "</td><td>" + esc(u.name) + " <span class='by'>added by @" + esc(u.by) + "</span></td><td>" +
         esc(u.from + " -> " + u.to) + "</td><td>" + usersOf(s).length + "</td><td>" + badge(s, S.ch) + "</td></tr>";
     });
-    $("#sttable").innerHTML = "<thead><tr><th>ID</th><th>what happens</th><th>reaction</th><th>mechanisms</th><th>votes</th></tr></thead><tbody>" + rows + "</tbody>";
+    $("#sttable").innerHTML = "<thead><tr><th>ID</th><th>what happens</th><th>reaction</th><th>mechanisms</th><th>status</th></tr></thead><tbody>" + rows + "</tbody>";
   }
   $("#sptable").addEventListener("click", function (e) { var r = e.target.closest("tr[data-s]"); if (r) openMol([r.getAttribute("data-s")]); });
   $("#sttable").addEventListener("click", function (e) { var r = e.target.closest("tr[data-t]"); if (r) openStep(r.getAttribute("data-t"), "fwd"); });
@@ -1060,13 +1046,10 @@
   }
   function annotTab() {
     var box = $("#annot"), d = doc(), rows = [], edit = Annot.canEdit, me = Annot.user ? Annot.user.login : null;
-    Object.keys(d.votes).forEach(function (k) {
-      var q = k.split("|");
-      Object.keys(d.votes[k]).forEach(function (u) {
-        var v = d.votes[k][u];
-        rows.push({ at: v.at, by: u, what: v.v === "yes" ? "✓ possible" : "✗ not possible", cls: v.v === "yes" ? "ok" : "bad", ch: q[0], id: q[1], note: v.note,
-                    act: edit && u === me ? ["clear", function () { Annot.vote([k], null, ""); }] : null });
-      });
+    Object.keys(d.status).forEach(function (k) {
+      var q = k.split("|"), v = d.status[k];
+      rows.push({ at: v.at, by: v.by, what: v.s === "yes" ? "✓ possible" : "✗ not possible", cls: v.s === "yes" ? "ok" : "bad", ch: q[0], id: q[1], note: v.note,
+                  act: edit ? ["clear", function () { Annot.setStatus([k], null, ""); }] : null });
     });
     Object.keys(d.removed).forEach(function (k) {
       var q = k.split("|"), r = d.removed[k];
@@ -1089,7 +1072,7 @@
     });
     rows.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : nat(a.id, b.id); });
     box.textContent = "";
-    var nv = Object.keys(d.votes).reduce(function (n, k) { return n + Object.keys(d.votes[k]).length; }, 0);
+    var nv = Object.keys(d.status).length;
     var who = {};
     rows.forEach(function (r) { who[r.by] = 1; });
     var src = !Annot.loaded ? "Annotations unavailable" + (Annot.error ? " (" + Annot.error + ")" : "") + ": the site works without them." :
@@ -1097,8 +1080,8 @@
       (Annot.source === "api" ? " (GitHub API, as @" + Annot.user.login + ")" : " (raw.githubusercontent.com; may lag a few minutes behind)") + ".";
     var blob = null;
     box.appendChild(h("div", { class: "annhead" }, [
-      h("h2", null, ["Votes and edits"]),
-      h("p", null, [plural(nv, "vote") + ", " + plural(Object.keys(d.removed).length, "removal") + ", " + plural(Object.keys(d.steps).length, "added step") + ", " +
+      h("h2", null, ["Statuses and edits"]),
+      h("p", null, [plural(nv, "status", "statuses") + ", " + plural(Object.keys(d.removed).length, "removal") + ", " + plural(Object.keys(d.steps).length, "added step") + ", " +
         plural(Object.keys(d.species).length, "added species", "added species") + " and " + plural(Object.keys(d.mechanisms).length, "added mechanism") +
         (rows.length ? ", by " + plural(Object.keys(who).length, "collaborator") : "") + "."]),
       h("p", { class: "note" }, [src]),
@@ -1110,10 +1093,10 @@
           document.body.appendChild(a); a.click(); a.remove();
         } }, ["Download annotations.json"]),
         h("button", { class: "btn", onclick: function () { Annot.reload(); } }, ["Reload"]),
-        Annot.user ? null : h("button", { class: "btn", onclick: signInDialog }, ["Sign in to vote and edit"])
+        Annot.user || !Annot.signInReady ? null : h("button", { class: "btn", onclick: function () { var b = $("#signin"); if (b) b.click(); } }, ["Sign in to mark and edit"])
       ])
     ]));
-    if (!rows.length) { box.appendChild(h("p", { class: "hint" }, ["No votes or edits yet."])); return; }
+    if (!rows.length) { box.appendChild(h("p", { class: "hint" }, ["No statuses or edits yet."])); return; }
     var tb = h("tbody");
     rows.forEach(function (r) {
       tb.appendChild(h("tr", null, [
@@ -1136,20 +1119,23 @@
       " mechanisms (an A version ending at P1a = 1-R-3-Me and a B version ending at P1b = 1-Me-3-R), " + ns + " species and " + nt +
       " steps for each of the urea and the thiourea. Species and step IDs are the same as in the mechflow projects <code>Ch_O</code> and <code>Ch_S</code>.</p>" +
       "<h2>How to read the drawings</h2><p>Each step with a transition state has its own colour: the arrow between two structures and the curly arrows on the structure before it. " +
-      "Above each coloured arrow is a 3D picture of a TS guess. Proton transfers are grey steps through the acid catalyst (HA drawn as A–H, A⁻ as A⁻), each with its own TS. The green H is the aldehyde H (H4).</p>" +
+      "Above each coloured arrow is a 3D picture of a TS guess. Proton transfers are grey steps through the acid catalyst (HA drawn as A–H, A⁻ as A⁻), each with its own TS. Proton transfers and steps that release or take up water are drawn as equilibria (⇌). The green H is the aldehyde H (H4).</p>" +
       "<h2>TS guesses and paths</h2><p>For every step, the two sides were joined by an IDPP interpolation (ASE NEB module, 9 images). One end is the structure mechflow starts the SCAN from; " +
       "the other is the same atoms with the step's bonds changed, relaxed with a force field. These are pictures and starting points, not DFT results. " +
       "The xyz files are in <code>xyz/ts_guesses/</code> and open with <code>ase gui</code>.</p>" +
-      "<h2>Votes and edits</h2><p>Collaborators on the GitHub repository can sign in (top right, with a personal access token) and mark each step, mechanism and " +
-      "species as possible or not possible, separately for the urea and the thiourea. They can also take mechanisms and steps out of the network, add steps " +
-      "and species, and build new mechanisms from the steps. Everyone sees the votes: as badges in the lists, in the step, species and mechanism views, and " +
-      "in the Annotations tab, which can download them all as <code>annotations.json</code>.</p><p>On the Network tab, <i>everything</i> shows every step " +
-      "that has not been removed, <i>hide what is not possible</i> leaves out the steps marked not possible, and <i>only what is marked possible</i> keeps " +
-      "only the steps marked possible. Both filters leave out species and mechanisms marked not possible, and everything that then no longer lies on a " +
-      "route from the reactants to a product; an arrow stays only while a mechanism that uses it is still allowed (or a collaborator added it as a step). " +
-      "A tie counts as disputed, which <i>hide</i> keeps and <i>only</i> leaves out. Added steps and species are drawn dashed in teal. " +
-      "In the search box, <code>is:possible</code>, <code>is:notpossible</code>, <code>is:disputed</code>, <code>is:unmarked</code>, <code>is:removed</code> " +
-      "and <code>is:added</code> filter the lists.</p>" +
+      "<h2>Statuses and edits</h2><p>Collaborators on the GitHub repository sign in with GitHub (top right) and mark mechanisms and steps as " +
+      "possible or not possible, separately for the urea and the thiourea, with a short note if they like. Each item has one status: the last change " +
+      "wins. A step marked not possible makes every mechanism that uses it not possible; a mechanism with no mark of its own whose steps are all " +
+      "marked possible is possible; a mechanism marked possible that uses a step marked not possible is shown as a conflict. The badges say where a " +
+      "status comes from (its own mark, or which steps). Collaborators can also take mechanisms and steps out of the network, add steps and species, " +
+      "and build new mechanisms from the steps. Everyone sees all of it: as badges in the lists, in the step and mechanism views, and in the " +
+      "Annotations tab, which can download it all as <code>annotations.json</code>.</p><p>On the Network tab, <i>everything</i> shows every step " +
+      "that has not been removed, <i>hide what is not possible</i> leaves out the steps marked not possible and the mechanisms that are not " +
+      "possible, and <i>only what is possible</i> keeps only the steps marked possible and the steps of mechanisms that are possible. Both " +
+      "filters then leave out everything that no longer lies on a route from the reactants to a product; an arrow stays only while a mechanism " +
+      "that uses it is still allowed (or a collaborator added it as a step). Added steps and species are drawn dashed in teal. " +
+      "In the search box, <code>is:possible</code>, <code>is:notpossible</code>, <code>is:conflict</code>, <code>is:unmarked</code>, " +
+      "<code>is:removed</code> and <code>is:added</code> filter the lists.</p>" +
       "<h2>After the DFT calculations</h2><p>Rebuild the site (<code>make_website.py</code>) and every step with a finished OptTS or IRC gets a “3D: DFT” tab.</p>";
   }
 
@@ -1187,7 +1173,7 @@
   function onAnnot() {
     annotQ = null;
     renderAuth();
-    $$(".vote").forEach(function (el) { renderVote(el); });
+    $$(".vote").forEach(function (el) { renderStatus(el); });
     var moved = Annot.takeRemap(), notice = Annot.takeNotice();
     if (S.mech && moved[S.mech]) S.mech = moved[S.mech];
     if (notice) toast(notice);

@@ -1,8 +1,8 @@
 /* Hydantoin Mechanism Explorer: the network as data (window.NetGraph).
 
    data/network_graph.js (written by make_website.py) holds the states (boxes) and arrows of the network, with the
-   mechanisms that use each arrow. Here the collaborators' additions are put in, the network is filtered by the votes,
-   and a filtered or edited network is laid out again in the browser with Graphviz (Viz.js, WebAssembly, loaded only
+   mechanisms that use each arrow. Here the collaborators' additions are put in, the network is filtered by the
+   statuses, and a filtered or edited network is laid out again in the browser with Graphviz (Viz.js, WebAssembly, loaded only
    when needed). The element ids are those of the pre-rendered network: "sp|I5a" for a state, "st|S7b|fwd" for a step;
    every box and arrow also has a class "k-<name>" (boxes) or "k-e<index>" (arrows). */
 (function () {
@@ -104,13 +104,17 @@
   }
 
   // ------------------------------------------------------------------ what is shown
-  /* o.mode: "all" | "hide" (hide what is marked not possible) | "only" (only steps marked possible)
-     o.status(key) -> "none" | "yes" | "no" | "tie";  o.removed(key) -> bool;  o.showRemoved: removed items count as there
-     Steps follow the mode. Species and mechanisms are left out only when marked not possible (a tie is not). An arrow
-     needs a mechanism that is still allowed, unless it is a step added by a collaborator.
-     "hide" and "only" keep only what lies on a route from the start (R1 + R2) to a product that uses allowed arrows
-     and boxes. "all" keeps everything that is not removed, less what a removal cuts off from such a route (a
-     collaborator's new step that does not reach a product yet is still shown). */
+  /* o.mode: "all" | "hide" (hide what is not possible) | "only" (only what is possible); o.showRemoved: removed items
+     count as there. o.removed(id), o.stepStatus(id) -> "yes" | "no" | "none" (a step's own mark) and
+     o.mechStatus(id) -> "yes" | "no" | "conflict" | "none" (a mechanism's shown status, with its steps' marks spread to
+     it) are for the chalcogen of the graph.
+     "all": an arrow needs a mechanism that is not removed (a step added by a collaborator needs none); everything that
+     is not removed is kept, less what a removal cuts off from every route from the reactants to a product (a new step
+     that does not reach a product yet is still shown).
+     "hide": also leaves out the steps marked not possible and the mechanisms that are not possible.
+     "only": keeps only the steps marked possible and the steps of mechanisms that are possible (never a step marked
+     not possible).
+     "hide" and "only" then keep only what lies on a route from the reactants (R1 + R2) to a product. */
   function onRoutes(G, edgeOK, nodeOK) {
     var out = G.nodes.map(function () { return []; }), inc = G.nodes.map(function () { return []; });
     G.edges.forEach(function (e, i) { if (edgeOK[i]) { out[e.from].push(e.to); inc[e.to].push(e.from); } });
@@ -129,25 +133,22 @@
              edge: G.edges.map(function (e, i) { return !!edgeOK[i] && f[e.from] && b[e.to]; }) };
   }
   function visible(G, o) {
-    var ch = G.ch, mode = o.mode, mOK = {};
-    function rm(id) { return !o.showRemoved && !!o.removed(ch + "|" + id); }
-    function loose(id) { return mode === "all" || o.status(ch + "|" + id) !== "no"; }
-    function stepOK(id) {
-      if (mode === "all") return true;
-      var s = o.status(ch + "|" + id);
-      return mode === "only" ? s === "yes" : s !== "no";
-    }
-    function mechOK(m) { if (!has(mOK, m)) mOK[m] = !rm(m) && loose(m); return mOK[m]; }
-    var nodeOK = G.nodes.map(function (n) { return n.kind === "start" || n.kind === "product" || n.sp.every(loose); });
+    var mode = o.mode, mCache = {};
+    function rm(id) { return !o.showRemoved && !!o.removed(id); }
+    function mech(m) { if (!has(mCache, m)) mCache[m] = o.mechStatus(m); return mCache[m]; }
+    var nodeOK = G.nodes.map(function () { return true; });
     var edgeOK = G.edges.map(function (e) {
-      if (!nodeOK[e.from] || !nodeOK[e.to]) return false;
-      if (e.step && (rm(e.step) || !stepOK(e.step))) return false;
-      if (e.user && e.user.kind === "step") return true;
-      return e.mechs.some(mechOK);
+      if (e.step && rm(e.step)) return false;
+      var userStep = !!(e.user && e.user.kind === "step"), live = e.mechs.filter(function (m) { return !rm(m); });
+      if (mode !== "hide" && mode !== "only") return userStep || live.length > 0;
+      var s = e.step ? o.stepStatus(e.step) : "none";
+      if (s === "no") return false;
+      if (mode === "hide") return userStep || live.some(function (m) { return mech(m) !== "no"; });
+      return (s === "yes" && (userStep || live.length > 0)) || live.some(function (m) { return mech(m) === "yes"; });
     });
     var cur = onRoutes(G, edgeOK, nodeOK);
-    if (mode !== "all") return cur;
-    var every = onRoutes(G, G.edges.map(function () { return true; }), G.nodes.map(function () { return true; }));
+    if (mode === "hide" || mode === "only") return cur;
+    var every = onRoutes(G, G.edges.map(function () { return true; }), nodeOK);
     var ev = G.edges.map(function (e, i) { return edgeOK[i] && (cur.edge[i] || !every.edge[i]); });
     var nv = G.nodes.map(function (n) { return !n.user && (n.kind === "start" || n.kind === "product"); });
     G.edges.forEach(function (e, i) { if (ev[i]) nv[e.from] = nv[e.to] = true; });
@@ -191,7 +192,7 @@
                '", dir=none, penwidth=' + (e.base ? "1.6" : "2.4") + "];");
       } else if (e.base) {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", color="' + e.colour + '", fontcolor="' + e.colour +
-               '", label=<<B>' + esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
+               '", ' + (e.eq === true ? "dir=both, " : "") + 'label=<<B>' + esc(e.step) + '</B>>, tooltip="' + dotStr(e.name) + '"];');
       } else {
         L.push(head + 'id="st|' + e.step + "|" + e.dir + '", class="' + cls + '", style=dashed, color="' + USER_COL + '", fontcolor="' +
                USER_COL + '", penwidth=2.8, label=<<B>' + esc(e.step + (e.dir === "rev" && e.user.kind === "hop" ? " (back)" : "")) +

@@ -1,16 +1,16 @@
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #5d6675; --line: #dfe3ea; --accent: #1f5fbf;
   --accent-soft: #e8f0fc; --hover: rgba(31, 95, 191, 0.08); --shadow: 0 8px 28px rgba(20, 30, 50, 0.22);
-  /* votes: possible / not possible / disputed; collaborators' additions */
+  /* statuses: possible / not possible / conflict; collaborators' additions */
   --ok: #1b7f3b; --ok-soft: #e6f4ea; --ok-line: #a8d8b6; --bad: #b42318; --bad-soft: #fdecea; --bad-line: #f1b3ab;
-  --tie: #9a5b00; --tie-soft: #fff3df; --tie-line: #eccb8f; --user: #00897b; --user-soft: #e0f2f1;
+  --warn: #9a5b00; --warn-soft: #fff3df; --warn-line: #eccb8f; --user: #00897b; --user-soft: #e0f2f1;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #14171d; --panel: #1d2129; --ink: #e8ebf1; --muted: #a3acba; --line: #333a46; --accent: #7aa7f0;
           --accent-soft: #233453; --hover: rgba(122, 167, 240, 0.14); --shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
           --ok: #6fcf8f; --ok-soft: rgba(111, 207, 143, 0.13); --ok-line: rgba(111, 207, 143, 0.45);
           --bad: #f28b82; --bad-soft: rgba(242, 139, 130, 0.13); --bad-line: rgba(242, 139, 130, 0.45);
-          --tie: #f2c46d; --tie-soft: rgba(242, 196, 109, 0.13); --tie-line: rgba(242, 196, 109, 0.45);
+          --warn: #f2c46d; --warn-soft: rgba(242, 196, 109, 0.13); --warn-line: rgba(242, 196, 109, 0.45);
           --user: #4db6ac; --user-soft: rgba(77, 182, 172, 0.14); }
 }
 * { box-sizing: border-box; }
@@ -112,8 +112,10 @@ code { background: var(--accent-soft); padding: 0 4px; border-radius: 4px; }
 .auth .save.s-saved { color: var(--ok); }
 .auth .save.s-error { color: var(--bad); }
 .auth .annstate { color: var(--muted); }
-.auth .annstate.off { color: var(--tie); }
-.auth .autherr { color: var(--bad); }
+.auth .annstate.off { color: var(--warn); }
+.auth .autherr { color: var(--bad); max-width: 420px; }
+.auth .signnote { color: var(--muted); font-style: italic; }
+.auth .remember { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); white-space: nowrap; }
 .btn { font: inherit; font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
        color: var(--ink); cursor: pointer; white-space: nowrap; }
 .btn:hover { background: var(--hover); }
@@ -124,36 +126,25 @@ code { background: var(--accent-soft); padding: 0 4px; border-radius: 4px; }
 .btn:disabled, .zoombar button:disabled { opacity: 0.5; cursor: default; }
 .zoombar button:hover:not(:disabled) { background: var(--hover); }
 
-/* ---------------------------------------------------------------- dialog and toast */
-.modal { position: fixed; inset: 0; z-index: 100000; display: flex; align-items: center; justify-content: center;
-         background: rgba(10, 15, 25, 0.45); padding: 16px; }
-.dlg { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
-       width: 100%; max-width: 580px; max-height: calc(100vh - 32px); overflow: auto; padding: 16px 20px; font-size: 13.5px; }
-.dlg h2 { font-size: 17px; margin: 0 0 8px; }
-.dlg ul { padding-left: 20px; }
-.dlg li { margin: 4px 0; }
-.dlg a { color: var(--accent); }
-.dlg .field input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* ---------------------------------------------------------------- toast */
 .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 100001; max-width: min(640px, calc(100vw - 32px));
          background: var(--ink); color: var(--panel); padding: 8px 14px; border-radius: 8px; box-shadow: var(--shadow); font-size: 13px;
          transition: opacity 0.5s; }
 .toast.out { opacity: 0; }
 
-/* ---------------------------------------------------------------- votes */
+/* ---------------------------------------------------------------- statuses */
 .chip, .bdg { display: inline-block; border: 1px solid var(--line); border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .chip { padding: 0 8px; font-size: 12px; }
 .bdg { margin-left: 6px; padding: 0 6px; font-size: 11px; line-height: 16px; vertical-align: 1px; }
 .st-none { color: var(--muted); }
 .st-yes { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-line); }
 .st-no { color: var(--bad); background: var(--bad-soft); border-color: var(--bad-line); }
-.st-tie { color: var(--tie); background: var(--tie-soft); border-color: var(--tie-line); }
+.st-conflict { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
 .bdg.rmv { color: var(--muted); text-decoration: line-through; }
-.warn { color: var(--tie); margin-left: 5px; }
 .ok { color: var(--ok); }
 .bad { color: var(--bad); }
 .vote { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line);
         font-size: 12.5px; background: var(--panel); }
-.vote .tally { color: var(--muted); white-space: nowrap; }
 .vote .vctl { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .vote button { font: inherit; font-size: 12px; padding: 1px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
                color: var(--ink); cursor: pointer; white-space: nowrap; }
@@ -166,15 +157,12 @@ code { background: var(--accent-soft); padding: 0 4px; border-radius: 4px; }
                background: var(--bg); color: var(--ink); }
 .vote .vboth { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); white-space: nowrap; }
 .vote .vhint { color: var(--muted); font-style: italic; }
+.vote .vsrc { flex-basis: 100%; color: var(--muted); overflow-wrap: anywhere; }
 .vote .vrmd { flex-basis: 100%; color: var(--bad); }
-.vote .vlist { flex-basis: 100%; }
-.vote .vlist summary { cursor: pointer; color: var(--accent); width: max-content; }
-.vote .vlist ul { margin: 4px 0 2px; padding-left: 18px; }
-.vote .vlist li { margin: 1px 0; overflow-wrap: anywhere; }
 .vlabel { font-weight: 600; font-size: 12.5px; padding: 8px 10px 0; }
-.mechvote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.mechvote .vote { border-bottom: 0; flex: 1 1 auto; }
-.mechvote > .btn { margin-right: 10px; }
+.mechbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.mechbar .vote { border-bottom: 0; flex: 1 1 auto; }
+.mechbar > .btn { margin-right: 10px; }
 
 /* ---------------------------------------------------------------- lists: removed, added by collaborators */
 .fam .ab button.rmd { text-decoration: line-through; color: var(--muted); }
@@ -223,7 +211,7 @@ fieldset.finish { border-color: var(--ok-line); background: var(--ok-soft); }
         background: var(--panel); color: var(--ink); cursor: pointer; }
 .bopt:hover { background: var(--hover); }
 .bopt.usr { border-style: dashed; border-color: var(--user); }
-.bopt .back { color: var(--tie); }
+.bopt .back { color: var(--warn); }
 .bopt .nm { color: var(--muted); }
 
 /* ---------------------------------------------------------------- a mechanism added by a collaborator, added steps and species */

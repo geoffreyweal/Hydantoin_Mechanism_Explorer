@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Only this site's own files run here. The page talks to nothing but the GitHub API (sign-in, votes and edits)
-     and raw.githubusercontent.com (reading the votes); file: is listed so that the page also works when opened
-     from the disk. 'wasm-unsafe-eval' lets the vendored Graphviz (assets/viz-global.js) run. -->
+<!-- Only this site's own files run here. The page talks to nothing but the GitHub API (statuses and edits),
+     raw.githubusercontent.com (reading them) and the sign-in Worker: make_website.py writes the Worker's origin
+     (from tokenUrl in config.js) into connect-src when it builds the site. file: is listed so that the page also works when
+     opened from the disk. 'wasm-unsafe-eval' lets the vendored Graphviz (assets/viz-global.js) run. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'wasm-unsafe-eval'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Hydantoin Mechanism Explorer</title>
@@ -37,7 +38,7 @@
     <aside id="famlist" aria-label="Mechanism families"></aside>
     <div class="viewwrap">
       <div class="zoombar"><button data-z="fit" title="Fit to width">Fit</button><button data-z="1" title="Actual size">100%</button><button data-z="+">+</button><button data-z="-">&minus;</button><span id="mechtitle"></span></div>
-      <div id="mechvote" class="mechvote" hidden></div>
+      <div id="mechbar" class="mechbar" hidden></div>
       <div id="mechview" class="canvas"><div class="hint">Pick a mechanism on the left.</div></div>
     </div>
   </section>
@@ -48,13 +49,13 @@
         <label class="netsel">Show <select id="netmode" aria-label="Which steps to show">
           <option value="all">everything</option>
           <option value="hide">hide what is not possible</option>
-          <option value="only">only what is marked possible</option>
+          <option value="only">only what is possible</option>
         </select></label>
         <label class="chk"><input type="checkbox" id="netremoved"> show removed (greyed)</label>
         <span class="editonly"><button id="addstep" title="Add a step between two states">+ step</button><button id="addmech" title="Build a new mechanism from the reactants to a product">+ mechanism</button></span>
         <span id="netbusy" class="busy" hidden>laying out&hellip;</span>
       </div>
-      <div class="netsub small"><span>Drag to move, scroll to zoom. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻).</span>
+      <div class="netsub small"><span>Drag to move, scroll to zoom. Boxes are species, arrows are steps, grey arrows are proton transfers through the acid catalyst (HA / A⁻); arrows with two heads are equilibria (proton transfers, water in or out).</span>
         <span id="netinfo"></span></div>
       <div id="netview" class="canvas pan"></div>
       <div id="netlegend" class="legend"></div>
@@ -66,7 +67,6 @@
   <section id="tab-about" class="tab"><div class="about" id="about"></div></section>
 </main>
 <div id="windows"></div>
-<div id="modal" class="modal" hidden></div>
 <script src="assets/3Dmol-min.js"></script>
 <script src="assets/boot.js"></script>
 <script src="data/meta.js"></script>
